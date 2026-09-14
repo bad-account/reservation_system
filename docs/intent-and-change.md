@@ -4,8 +4,8 @@
 Domain for padel courts reservation 
 
 ## Purpose
-Reservation system for the new padel courts in Ostrava. 
-It is for people who are searching for padel courts to play on with their family or friends. 
+- Reservation system for the new padel courts in Ostrava. 
+- It is for people who are searching for padel courts to play on with their family or friends. 
 
 ## Users / Stakeholders
 Admin
@@ -25,10 +25,10 @@ Reservation - User ID, name, surname, time slot, court number, state
 Court - number, availability
 
 ## State-changing operation
-DRAFT → CONFIRMED
-DRAFT → REJECTED
-CONFIRMED → CANCELED
-CONFIRMED → EXPIRED
+- DRAFT → CONFIRMED
+- DRAFT → REJECTED
+- CONFIRMED → CANCELED
+- CONFIRMED → EXPIRED
 
 
 ## Common business rule
