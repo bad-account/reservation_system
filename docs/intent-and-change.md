@@ -1,16 +1,18 @@
 # Project Frame
 
 ## Reservation domain
-Co konkrétně rezervujeme?
+Domain for padel courts reservation 
 
 ## Purpose
-2–3 věty: komu systém slouží a proč.
+Reservation system for the new padel courts in Ostrava. 
+It is for people who are searching for padel courts to play on with their family or friends. 
 
 ## Users / Stakeholders
-1–3 role.
+Admin
+User
 
 ## Core concepts
-Reservation, Resource, User + případně 0–3 další pojmy.
+Reservation, Court, Time-slot, User 
 
 ## Core operations
 - Create reservation
@@ -19,22 +21,28 @@ Reservation, Resource, User + případně 0–3 další pojmy.
 - Check availability
 
 ## Persistent state
-Co ukládáme o Reservation a Resource.
+Reservation - User ID, name, surname, time slot, court number, state
+Court - number, availability
 
 ## State-changing operation
-Např. DRAFT → CONFIRMED.
+DRAFT → CONFIRMED
+DRAFT → REJECTED
+CONFIRMED → CANCELED
+CONFIRMED → EXPIRED
+
 
 ## Common business rule
 Confirmed reservations for the same resource must not overlap.
 
 ## Domain-specific business rule
-Jedno vlastní pravidlo.
+User can have at most 2 active reservations in advance.
 
 ## External / system boundary
-Jedna dependency. Defaultně Notification Service.
+Notification Service (email notification one day before reservation)
+Access Control System (QR code generation for easy court access)
 
 ## Assumption
-Jedna věc, kterou nyní považujete za pravdivou, ale není jistota.
+Courts are going to have fixed opening hours (8:00-22:00) and fixed time slots (60 minutes).
 
 ## Unknown
-Jedna důležitá věc, kterou nyní nevíte.
+??????????
