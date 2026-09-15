@@ -1,0 +1,95 @@
+﻿@using reservation_system_for_padel.Models
+@{
+    ViewData["Title"] = "Rezervace kurtů na padel";
+    var selectedDate = (DateOnly)ViewBag.SelectedDate;
+    var courts = (List<Court>)ViewBag.Courts;
+    var timeSlots = (List<TimeSlot>)ViewBag.TimeSlots;
+    var reservations = (List<Reservation>)ViewBag.Reservations;
+    int currentUserId = (int)ViewBag.CurrentUserId;
+}
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h1 class="h3 mb-0 text-primary">Rezervační systém padelových kurtů</h1>
+            <p class="text-muted small mb-0">Ostrava Padel Club</p>
+        </div>
+
+        <!-- Výběr data -->
+        <form method="get" asp-action="Index" class="d-flex align-items-center gap-2">
+            <label for="date" class="fw-bold mb-0">Datum:</label>
+            <input type="date" id="date" name="date" class="form-control"
+                   value="@selectedDate.ToString("yyyy-MM-dd")"
+                   onchange="this.form.submit()" />
+        </form>
+    </div>
+
+    <!-- Hlášky o úspěchu / chybě -->
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>Úspěch!</strong> @TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>Chyba:</strong> @TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Matice kurtů a časových slotů -->
+    <div class="table-responsive shadow-sm rounded">
+        <table class="table table-bordered table-hover align-middle text-center mb-0 bg-white">
+            <thead class="table-dark">
+                <tr>
+                    <th style="width: 140px;">Časový slot</th>
+                    @foreach (var court in courts)
+                    {
+                        <th>Kurt č. @court.Number</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var slot in timeSlots)
+                {
+                    <tr>
+                        <td class="fw-semibold bg-light">
+                            @slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")
+                        </td>
+
+                        @foreach (var court in courts)
+                        {
+                            var reservation = reservations.FirstOrDefault(r => r.CourtId == court.Id && r.TimeSlotId == slot.Id);
+
+                            if (reservation != null)
+                            {
+                                <td class="bg-danger-subtle text-danger fw-semibold">
+                                    <span class="badge bg-danger">Obsazeno</span>
+                                    <div class="small text-muted mt-1">@reservation.User.Name @reservation.User.Surname[0].</div>
+                                </td>
+                            }
+                            else
+                            {
+                                <td class="bg-light-subtle">
+                                    <form method="post" asp-action="BookSlot">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="courtId" value="@court.Id" />
+                                        <input type="hidden" name="timeSlotId" value="@slot.Id" />
+                                        <input type="hidden" name="date" value="@selectedDate.ToString("yyyy-MM-dd")" />
+                                        <input type="hidden" name="userId" value="@currentUserId" />
+                                        <button type="submit" class="btn btn-outline-success btn-sm px-3">
+                                            Rezervovat
+                                        </button>
+                                    </form>
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
