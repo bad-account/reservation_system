@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("reservation_system_for_padel")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+60d71eef140363e9c31a4e7b7108d4b272622b73")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6314968729fe1eb03bbd6d5a850b740b306a1b8c")]
 [assembly: System.Reflection.AssemblyProductAttribute("reservation_system_for_padel")]
 [assembly: System.Reflection.AssemblyTitleAttribute("reservation_system_for_padel")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

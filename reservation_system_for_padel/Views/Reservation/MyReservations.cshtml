@@ -1,0 +1,70 @@
+﻿@model IEnumerable<reservation_system_for_padel.Models.Reservation>
+
+@{
+    ViewData["Title"] = "Moje rezervace";
+}
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Moje rezervace</h2>
+        <a asp-action="Index" class="btn btn-secondary">Zpět do kalendáře</a>
+    </div>
+
+    @if (!Model.Any())
+    {
+        <div class="alert alert-info">Nemáte žádné rezervace.</div>
+    }
+    else
+    {
+        <div class="table-responsive shadow-sm rounded">
+            <table class="table table-striped table-hover align-middle mb-0 bg-white">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Datum</th>
+                        <th>Čas</th>
+                        <th>Kurt</th>
+                        <th>Stav</th>
+                        <th>Akce</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var res in Model)
+                    {
+                        <tr>
+                            <td>@res.Date.ToString("dd.MM.yyyy")</td>
+                            <td>@res.TimeSlot.StartTime.ToString("HH:mm") – @res.TimeSlot.EndTime.ToString("HH:mm")</td>
+                            <td>Kurt č. @res.Court.Number</td>
+                            <td>
+                                @if (res.State == reservation_system_for_padel.Models.ReservationState.Confirmed)
+                                {
+                                    <span class="badge bg-success">Potvrzeno</span>
+                                }
+                                else if (res.State == reservation_system_for_padel.Models.ReservationState.Canceled)
+                                {
+                                    <span class="badge bg-secondary">Zrušeno</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark">@res.State</span>
+                                }
+                            </td>
+                            <td>
+                                @if (res.State == reservation_system_for_padel.Models.ReservationState.Confirmed && res.Date >= DateOnly.FromDateTime(DateTime.Today))
+                                {
+                                    <form method="post" asp-action="Cancel" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="reservationId" value="@res.Id" />
+                                        <input type="hidden" name="date" value="@res.Date.ToString("yyyy-MM-dd")" />
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Opravdu chcete zrušit tuto rezervaci?');">
+                                            Zrušit
+                                        </button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

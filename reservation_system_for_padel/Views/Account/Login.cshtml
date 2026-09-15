@@ -1,0 +1,39 @@
+﻿@{
+    ViewData["Title"] = "Přihlášení";
+}
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-4">
+                <h3 class="card-title text-center mb-4">Přihlášení</h3>
+
+                @if (ViewBag.Error != null)
+                {
+                    <div class="alert alert-danger py-2">@ViewBag.Error</div>
+                }
+
+                <form method="post" asp-action="Login">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+
+                    <div class="mb-3">
+                        <label class="form-label">E-mail</label>
+                        <input type="email" name="email" class="form-control" required />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Heslo</label>
+                        <input type="password" name="password" class="form-control" required />
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 mb-3">Přihlásit se</button>
+                </form>
+
+                <div class="text-center">
+                    <small>Nemáte ještě účet? <a asp-action="Register">Registrujte se zde</a></small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
