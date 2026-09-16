@@ -29,13 +29,32 @@ public class ReservationController : Controller
     public async Task<IActionResult> Index(DateOnly? date)
     {
         var targetDate = date ?? DateOnly.FromDateTime(DateTime.Today);
+        var now = DateTime.Now;
+        var today = DateOnly.FromDateTime(now);
+        var currentTime = TimeOnly.FromDateTime(now);
 
         var courts = await _context.Courts
             .Where(c => c.IsActive)
             .OrderBy(c => c.Number)
             .ToListAsync();
 
-        var slots = await _context.TimeSlots
+        // Načtení časových slotů
+        var querySlots = _context.TimeSlots.AsQueryable();
+
+        // Pokud je vybrán dnešek, vyfiltrujeme sloty, jejichž StartTime už nastal nebo proběhl
+        if (targetDate == today)
+        {
+            // Počáteční hodina z aktuálního času (např. 12:05 -> 12:00)
+            var currentHourStart = new TimeOnly(currentTime.Hour, 0);
+            querySlots = querySlots.Where(s => s.StartTime > currentHourStart);
+        }
+        else if (targetDate < today)
+        {
+            // Pro minulost nezobrazíme žádné sloty
+            querySlots = querySlots.Where(s => false);
+        }
+
+        var slots = await querySlots
             .OrderBy(s => s.StartTime)
             .ToListAsync();
 
@@ -104,6 +123,7 @@ public class ReservationController : Controller
             CreatedAt = DateTime.UtcNow
         };
 
+
         _context.Reservations.Add(res);
         await _context.SaveChangesAsync();
 
@@ -141,11 +161,13 @@ public class ReservationController : Controller
         return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
     }
 
-    // GET: /Reservation/MyReservations
     [Authorize]
     public async Task<IActionResult> MyReservations()
     {
         int userId = CurrentUserId!.Value;
+        var now = DateTime.Now;
+        var today = DateOnly.FromDateTime(now);
+        var currentTime = TimeOnly.FromDateTime(now);
 
         var myReservations = await _context.Reservations
             .Include(r => r.Court)
@@ -154,6 +176,24 @@ public class ReservationController : Controller
             .OrderByDescending(r => r.Date)
             .ThenByDescending(r => r.TimeSlot.StartTime)
             .ToListAsync();
+
+        bool updated = false;
+        foreach (var res in myReservations)
+        {
+            if (res.State == ReservationState.Confirmed)
+            {
+                if (res.Date < today || (res.Date == today && res.TimeSlot.EndTime <= currentTime))
+                {
+                    res.State = ReservationState.Expired;
+                    updated = true;
+                }
+            }
+        }
+
+        if (updated)
+        {
+            await _context.SaveChangesAsync();
+        }
 
         return View(myReservations);
     }

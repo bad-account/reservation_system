@@ -2,13 +2,31 @@
 
 @{
     ViewData["Title"] = "Moje rezervace";
+    var now = DateTime.Now;
+    var today = DateOnly.FromDateTime(now);
+    var currentTime = TimeOnly.FromDateTime(now);
 }
 
 <div class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>Moje rezervace</h2>
-        <a asp-action="Index" class="btn btn-secondary">Zpět do kalendáře</a>
+        <h2 class="h3 mb-0 text-primary">Moje rezervace</h2>
+        <a asp-action="Index" class="btn btn-outline-secondary btn-sm">Zpět do kalendáře</a>
     </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
 
     @if (!Model.Any())
     {
@@ -24,38 +42,50 @@
                         <th>Čas</th>
                         <th>Kurt</th>
                         <th>Stav</th>
-                        <th>Akce</th>
+                        <th class="text-end">Akce</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var res in Model)
                     {
+                        // Určení, zda je termín minulý (expirovaný)
+                        bool isPast = res.Date < today || (res.Date == today && res.TimeSlot.EndTime <= currentTime);
+                        bool isExpired = res.State == reservation_system_for_padel.Models.ReservationState.Expired || isPast;
+
                         <tr>
-                            <td>@res.Date.ToString("dd.MM.yyyy")</td>
+                            <td>@res.Date.ToString("dd. MM. yyyy")</td>
                             <td>@res.TimeSlot.StartTime.ToString("HH:mm") – @res.TimeSlot.EndTime.ToString("HH:mm")</td>
                             <td>Kurt č. @res.Court.Number</td>
                             <td>
-                                @if (res.State == reservation_system_for_padel.Models.ReservationState.Confirmed)
-                                {
-                                    <span class="badge bg-success">Potvrzeno</span>
-                                }
-                                else if (res.State == reservation_system_for_padel.Models.ReservationState.Canceled)
+                                @if (res.State == reservation_system_for_padel.Models.ReservationState.Canceled)
                                 {
                                     <span class="badge bg-secondary">Zrušeno</span>
+                                }
+                                else if (res.State == reservation_system_for_padel.Models.ReservationState.Rejected)
+                                {
+                                    <span class="badge bg-danger">Zamítnuto</span>
+                                }
+                                else if (isExpired)
+                                {
+                                    <span class="badge bg-secondary text-light">Expirovaná</span>
+                                }
+                                else if (res.State == reservation_system_for_padel.Models.ReservationState.Confirmed)
+                                {
+                                    <span class="badge bg-success">Aktivní</span>
                                 }
                                 else
                                 {
                                     <span class="badge bg-warning text-dark">@res.State</span>
                                 }
                             </td>
-                            <td>
-                                @if (res.State == reservation_system_for_padel.Models.ReservationState.Confirmed && res.Date >= DateOnly.FromDateTime(DateTime.Today))
+                            <td class="text-end">
+                                @if (!isExpired && res.State == reservation_system_for_padel.Models.ReservationState.Confirmed)
                                 {
                                     <form method="post" asp-action="Cancel" class="d-inline">
                                         @Html.AntiForgeryToken()
                                         <input type="hidden" name="reservationId" value="@res.Id" />
                                         <input type="hidden" name="date" value="@res.Date.ToString("yyyy-MM-dd")" />
-                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Opravdu chcete zrušit tuto rezervaci?');">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Opravdu chcete zrušit tuto rezervaci?');">
                                             Zrušit
                                         </button>
                                     </form>

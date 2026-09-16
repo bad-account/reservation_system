@@ -1,23 +1,23 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\Jan Bruthans\\Desktop\\reservation_system\\reservation_system_for_padel\\reservation_system_for_padel.csproj": {}
+    "C:\\zaloha\\plocha\\Výška\\Ctvrtak\\SWI\\reservation_system_for_padel\\reservation_system_for_padel.csproj": {}
   },
   "projects": {
-    "C:\\Users\\Jan Bruthans\\Desktop\\reservation_system\\reservation_system_for_padel\\reservation_system_for_padel.csproj": {
+    "C:\\zaloha\\plocha\\Výška\\Ctvrtak\\SWI\\reservation_system_for_padel\\reservation_system_for_padel.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Jan Bruthans\\Desktop\\reservation_system\\reservation_system_for_padel\\reservation_system_for_padel.csproj",
+        "projectUniqueName": "C:\\zaloha\\plocha\\Výška\\Ctvrtak\\SWI\\reservation_system_for_padel\\reservation_system_for_padel.csproj",
         "projectName": "reservation_system_for_padel",
-        "projectPath": "C:\\Users\\Jan Bruthans\\Desktop\\reservation_system\\reservation_system_for_padel\\reservation_system_for_padel.csproj",
-        "packagesPath": "C:\\Users\\Jan Bruthans\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Jan Bruthans\\Desktop\\reservation_system\\reservation_system_for_padel\\obj\\",
+        "projectPath": "C:\\zaloha\\plocha\\Výška\\Ctvrtak\\SWI\\reservation_system_for_padel\\reservation_system_for_padel.csproj",
+        "packagesPath": "C:\\Users\\Škola\\.nuget\\packages\\",
+        "outputPath": "C:\\zaloha\\plocha\\Výška\\Ctvrtak\\SWI\\reservation_system_for_padel\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Jan Bruthans\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\Škola\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -26,6 +26,7 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -38,13 +39,7 @@
           "warnAsError": [
             "NU1605"
           ]
-        },
-        "restoreAuditProperties": {
-          "enableAudit": "true",
-          "auditLevel": "low",
-          "auditMode": "direct"
-        },
-        "SdkAnalysisLevel": "9.0.300"
+        }
       },
       "frameworks": {
         "net7.0": {
@@ -90,7 +85,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.318\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\7.0.203\\RuntimeIdentifierGraph.json"
         }
       }
     }

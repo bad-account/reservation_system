@@ -6,7 +6,68 @@
     var timeSlots = (List<TimeSlot>)ViewBag.TimeSlots;
     var reservations = (List<Reservation>)ViewBag.Reservations;
     int? currentUserId = ViewBag.CurrentUserId;
+
+    var today = DateOnly.FromDateTime(DateTime.Now);
+
+    int courtCount = courts.Count > 0 ? courts.Count : 1;
+    string courtColumnWidth = $"{85.0 / courtCount}%";
 }
+
+<style>
+    .table-fixed {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    .slot-cell {
+        height: 54px;
+        padding: 0 !important;
+        vertical-align: middle;
+    }
+
+    .slot-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        text-decoration: none;
+    }
+
+    .cell-available {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+        cursor: pointer;
+        font-weight: 600;
+        transition: background-color 0.15s ease-in-out;
+    }
+
+        .cell-available:hover {
+            background-color: #c8e6c9 !important;
+            color: #1b5e20;
+        }
+
+    .cell-mine {
+        background-color: #e3f2fd;
+        color: #1565c0;
+        cursor: pointer;
+        font-weight: 600;
+        transition: background-color 0.15s ease-in-out;
+    }
+
+        .cell-mine:hover {
+            background-color: #bbdefb !important;
+            color: #0d47a1;
+        }
+
+    .cell-occupied {
+        background-color: #ffebee;
+        color: #c62828;
+        cursor: not-allowed;
+        font-weight: 500;
+    }
+</style>
 
 <div class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
@@ -19,6 +80,7 @@
             <label for="date" class="fw-bold mb-0">Datum:</label>
             <input type="date" id="date" name="date" class="form-control"
                    value="@selectedDate.ToString("yyyy-MM-dd")"
+                   min="@today.ToString("yyyy-MM-dd")"
                    onchange="this.form.submit()" />
         </form>
     </div>
@@ -38,85 +100,197 @@
         </div>
     }
 
-    <div class="table-responsive shadow-sm rounded">
-        <table class="table table-bordered align-middle text-center mb-0 bg-white">
-            <thead class="table-dark">
-                <tr>
-                    <th style="width: 140px;">Čas</th>
-                    @foreach (var court in courts)
-                    {
-                        <th>Kurt č. @court.Number</th>
-                    }
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var slot in timeSlots)
-                {
+    @if (!timeSlots.Any())
+    {
+        <div class="alert alert-warning text-center my-4 py-4 shadow-sm">
+            Pro tento den již nejsou k dispozici žádné volné časové sloty.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive shadow-sm rounded">
+            <table class="table table-bordered align-middle text-center mb-0 bg-white table-fixed">
+                <thead class="table-dark">
                     <tr>
-                        <td class="fw-semibold bg-light">
-                            @slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")
-                        </td>
-
+                        <th style="width: 15%;">Čas</th>
                         @foreach (var court in courts)
                         {
-                            var res = reservations.FirstOrDefault(r => r.CourtId == court.Id && r.TimeSlotId == slot.Id);
+                            <th style="width: @courtColumnWidth;">Kurt č. @court.Number</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var slot in timeSlots)
+                    {
+                        <tr>
+                            <td class="fw-semibold bg-light">
+                                @slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")
+                            </td>
 
-                            if (res != null)
+                            @foreach (var court in courts)
                             {
-                                bool isMine = currentUserId.HasValue && res.UserId == currentUserId.Value;
+                                var res = reservations.FirstOrDefault(r => r.CourtId == court.Id && r.TimeSlotId == slot.Id);
 
-                                if (isMine)
+                                if (res != null)
                                 {
-                                    <td class="bg-primary-subtle p-2">
-                                        <div class="badge bg-primary mb-1">Moje rezervace</div>
-                                        <form method="post" asp-action="Cancel">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="reservationId" value="@res.Id" />
-                                            <input type="hidden" name="date" value="@selectedDate.ToString("yyyy-MM-dd")" />
-                                            <button type="submit" class="btn btn-outline-danger btn-sm"
-                                                    onclick="return confirm('Opravdu chcete zrušit tuto rezervaci?');">
-                                                Zrušit
-                                            </button>
-                                        </form>
-                                    </td>
-                                }
-                                else
-                                {
-                                    <td class="bg-danger-subtle text-danger fw-semibold">
-                                        <span class="badge bg-danger">Obsazeno</span>
-                                        <div class="small text-muted mt-1">@res.User.Name @res.User.Surname[0].</div>
-                                    </td>
-                                }
-                            }
-                            else
-                            {
-                                <td class="bg-light-subtle">
-                                    @if (User.Identity?.IsAuthenticated == true)
+                                    bool isMine = currentUserId.HasValue && res.UserId == currentUserId.Value;
+
+                                    if (isMine)
                                     {
-                                        <form method="post" asp-action="BookSlot">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="courtId" value="@court.Id" />
-                                            <input type="hidden" name="timeSlotId" value="@slot.Id" />
-                                            <input type="hidden" name="date" value="@selectedDate.ToString("yyyy-MM-dd")" />
-                                            <button type="submit" class="btn btn-outline-success btn-sm px-3">
-                                                Rezervovat
-                                            </button>
-                                        </form>
+                                        <td class="slot-cell">
+                                            <div class="slot-content cell-mine"
+                                                 data-bs-toggle="modal"
+                                                 data-bs-target="#cancelModal"
+                                                 data-reservation-id="@res.Id"
+                                                 data-court-number="@court.Number"
+                                                 data-slot-time="@slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")">
+                                                <span>Moje rezervace</span>
+                                                <span class="small opacity-75 fw-normal" style="font-size: 0.75rem;">(kliknutím zrušit)</span>
+                                            </div>
+                                        </td>
                                     }
                                     else
                                     {
-                                        <a asp-controller="Account" asp-action="Login"
-                                           asp-route-returnUrl="@Url.Action("Index", "Reservation", new { date = selectedDate.ToString("yyyy-MM-dd") })"
-                                           class="btn btn-outline-secondary btn-sm">
-                                            Přihlásit se
-                                        </a>
+                                        <td class="slot-cell">
+                                            <div class="slot-content cell-occupied">
+                                                <span>Obsazeno</span>
+                                                <span class="small opacity-75 fw-normal" style="font-size: 0.75rem;">@res.User.Name @res.User.Surname[0].</span>
+                                            </div>
+                                        </td>
                                     }
-                                </td>
+                                }
+                                else
+                                {
+                                    <td class="slot-cell">
+                                        @if (User.Identity?.IsAuthenticated == true)
+                                        {
+                                            <div class="slot-content cell-available"
+                                                 data-bs-toggle="modal"
+                                                 data-bs-target="#confirmModal"
+                                                 data-court-id="@court.Id"
+                                                 data-court-number="@court.Number"
+                                                 data-slot-id="@slot.Id"
+                                                 data-slot-time="@slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")">
+                                                Volno
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <a asp-controller="Account" asp-action="Login"
+                           asp-route-returnUrl="@Url.Action("Index", "Reservation", new { date = selectedDate.ToString("yyyy-MM-dd") })"
+                                               class="slot-content text-secondary fw-semibold bg-light text-decoration-none">
+                                                Přihlásit se
+                                            </a>
+                                        }
+                                    </td>
+                                }
                             }
-                        }
-                    </tr>
-                }
-            </tbody>
-        </table>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<!-- Modal pro POTVRZENÍ rezervace -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmModalLabel">Potvrzení rezervace</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
+            </div>
+            <form method="post" asp-action="BookSlot">
+                @Html.AntiForgeryToken()
+                <div class="modal-body text-start">
+                    <p class="mb-3">Chystáte se vytvořit rezervaci s následujícími parametry:</p>
+                    <ul class="list-group mb-3">
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>Datum:</span>
+                            <strong>@selectedDate.ToString("dd. MM. yyyy")</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>Kurt:</span>
+                            <strong id="confirmModalCourt">---</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>Čas:</span>
+                            <strong id="confirmModalTime">---</strong>
+                        </li>
+                    </ul>
+                    <input type="hidden" name="courtId" id="confirmModalCourtId" />
+                    <input type="hidden" name="timeSlotId" id="confirmModalTimeSlotId" />
+                    <input type="hidden" name="date" value="@selectedDate.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zpět</button>
+                    <button type="submit" class="btn btn-success">Potvrdit rezervaci</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
+
+<!-- Modal pro ZRUŠENÍ vlastní rezervace -->
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger" id="cancelModalLabel">Zrušení rezervace</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
+            </div>
+            <form method="post" asp-action="Cancel">
+                @Html.AntiForgeryToken()
+                <div class="modal-body text-start">
+                    <p class="mb-3">Opravdu chcete zrušit tuto rezervaci?</p>
+                    <ul class="list-group mb-3">
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>Datum:</span>
+                            <strong>@selectedDate.ToString("dd. MM. yyyy")</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>Kurt:</span>
+                            <strong id="cancelModalCourt">---</strong>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>Čas:</span>
+                            <strong id="cancelModalTime">---</strong>
+                        </li>
+                    </ul>
+                    <input type="hidden" name="reservationId" id="cancelModalReservationId" />
+                    <input type="hidden" name="date" value="@selectedDate.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Ponechat</button>
+                    <button type="submit" class="btn btn-danger">Zrušit rezervaci</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        const confirmModal = document.getElementById('confirmModal');
+        if (confirmModal) {
+            confirmModal.addEventListener('show.bs.modal', function (event) {
+                const trigger = event.relatedTarget;
+                document.getElementById('confirmModalCourtId').value = trigger.getAttribute('data-court-id');
+                document.getElementById('confirmModalTimeSlotId').value = trigger.getAttribute('data-slot-id');
+                document.getElementById('confirmModalCourt').textContent = 'Kurt č. ' + trigger.getAttribute('data-court-number');
+                document.getElementById('confirmModalTime').textContent = trigger.getAttribute('data-slot-time');
+            });
+        }
+
+        const cancelModal = document.getElementById('cancelModal');
+        if (cancelModal) {
+            cancelModal.addEventListener('show.bs.modal', function (event) {
+                const trigger = event.relatedTarget;
+                document.getElementById('cancelModalReservationId').value = trigger.getAttribute('data-reservation-id');
+                document.getElementById('cancelModalCourt').textContent = 'Kurt č. ' + trigger.getAttribute('data-court-number');
+                document.getElementById('cancelModalTime').textContent = trigger.getAttribute('data-slot-time');
+            });
+        }
+    </script>
+}
