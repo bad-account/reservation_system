@@ -171,15 +171,15 @@
                                                  data-court-number="@court.Number"
                                                  data-slot-id="@slot.Id"
                                                  data-slot-time="@slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")">
-                                                Volno
+                                                Rezervovat
                                             </div>
                                         }
                                         else
                                         {
                                             <a asp-controller="Account" asp-action="Login"
                            asp-route-returnUrl="@Url.Action("Index", "Reservation", new { date = selectedDate.ToString("yyyy-MM-dd") })"
-                                               class="slot-content text-secondary fw-semibold bg-light text-decoration-none">
-                                                Přihlásit se
+                                               class="slot-content cell-available text-decoration-none">
+                                                Rezervovat
                                             </a>
                                         }
                                     </td>

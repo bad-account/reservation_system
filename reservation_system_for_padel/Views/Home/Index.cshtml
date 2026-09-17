@@ -1,8 +1,71 @@
 ﻿@{
-    ViewData["Title"] = "Home Page";
+    ViewData["Title"] = "Padel Ostrava";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://docs.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<div class="py-5 bg-light rounded-3 shadow-sm mb-4 text-center">
+    <div class="container py-4">
+        <h1 class="display-4 fw-bold text-primary">Vítejte v Padel Ostrava</h1>
+        <p class="fs-4 text-muted col-md-8 mx-auto mt-3">
+            Rezervujte si kurt pro padel snadno a rychle. Vyberte si vyhovující čas a přijďte si zahrát s přáteli nebo rodinou.
+        </p>
+        <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4">
+            <a asp-controller="Reservation" asp-action="Index" class="btn btn-success btn-lg px-4 gap-3 fw-semibold">
+                Rezervovat kurt
+            </a>
+            @if (User.Identity?.IsAuthenticated == true)
+            {
+                <a asp-controller="Reservation" asp-action="MyReservations" class="btn btn-outline-primary btn-lg px-4">
+                    Moje rezervace
+                </a>
+            }
+            else
+            {
+                <a asp-controller="Account" asp-action="Login" class="btn btn-outline-secondary btn-lg px-4">
+                    Přihlásit se
+                </a>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 text-center">
+    <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm p-3">
+            <div class="card-body">
+                <div class="text-primary mb-3">
+                    <i class="bi bi-calendar-check display-5"></i>
+                </div>
+                <h3 class="h5 card-title fw-bold">Online kalendář</h3>
+                <p class="card-text text-muted">
+                    Přehledný harmonogram s okamžitou kontrolou volných kapacit v reálném čase.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm p-3">
+            <div class="card-body">
+                <div class="text-primary mb-3">
+                    <i class="bi bi-clock-history display-5"></i>
+                </div>
+                <h3 class="h5 card-title fw-bold">Provozní doba</h3>
+                <p class="card-text text-muted">
+                    Otevřeno máme každý den od 8:00 do 22:00. Hodinové sloty na míru vašim potřebám.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm p-3">
+            <div class="card-body">
+                <div class="text-primary mb-3">
+                    <i class="bi bi-qr-code-scan display-5"></i>
+                </div>
+                <h3 class="h5 card-title fw-bold">Rychlý přístup</h3>
+                <p class="card-text text-muted">
+                    Spravujte své aktivní i prošlé rezervace z jednoho místa ve vašem profilu.
+                </p>
+            </div>
+        </div>
+    </div>
 </div>
