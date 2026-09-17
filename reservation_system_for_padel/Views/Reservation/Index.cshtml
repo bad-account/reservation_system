@@ -40,7 +40,7 @@
         color: #2e7d32;
         cursor: pointer;
         font-weight: 600;
-        transition: background-color 0.15s ease-in-out;
+        transition: background-color 0.15s;
     }
 
         .cell-available:hover {
@@ -53,12 +53,24 @@
         color: #1565c0;
         cursor: pointer;
         font-weight: 600;
-        transition: background-color 0.15s ease-in-out;
+        transition: background-color 0.15s;
     }
 
         .cell-mine:hover {
             background-color: #bbdefb !important;
             color: #0d47a1;
+        }
+
+    .cell-my-draft {
+        background-color: #fff3cd;
+        color: #856404;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.15s;
+    }
+
+        .cell-my-draft:hover {
+            background-color: #ffe8a1 !important;
         }
 
     .cell-occupied {
@@ -84,6 +96,8 @@
                    onchange="this.form.submit()" />
         </form>
     </div>
+
+    <div id="alertContainer"></div>
 
     @if (TempData["SuccessMessage"] != null)
     {
@@ -135,7 +149,28 @@
                                 {
                                     bool isMine = currentUserId.HasValue && res.UserId == currentUserId.Value;
 
-                                    if (isMine)
+                                    if (res.State == ReservationState.Draft)
+                                    {
+                                        if (isMine)
+                                        {
+                                            <td class="slot-cell">
+                                                <div class="slot-content cell-my-draft"
+                                                     onclick="startDraft(@court.Id, @court.Number, @slot.Id, '@slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")', this)">
+                                                    <span>Dokončit rezervaci</span>
+                                                    <span class="small opacity-75 fw-normal" style="font-size: 0.75rem;">(rozpracováno)</span>
+                                                </div>
+                                            </td>
+                                        }
+                                        else
+                                        {
+                                            <td class="slot-cell">
+                                                <div class="slot-content cell-occupied">
+                                                    <span>Obsazeno</span>
+                                                </div>
+                                            </td>
+                                        }
+                                    }
+                                    else if (isMine)
                                     {
                                         <td class="slot-cell">
                                             <div class="slot-content cell-mine"
@@ -165,12 +200,7 @@
                                         @if (User.Identity?.IsAuthenticated == true)
                                         {
                                             <div class="slot-content cell-available"
-                                                 data-bs-toggle="modal"
-                                                 data-bs-target="#confirmModal"
-                                                 data-court-id="@court.Id"
-                                                 data-court-number="@court.Number"
-                                                 data-slot-id="@slot.Id"
-                                                 data-slot-time="@slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")">
+                                                 onclick="startDraft(@court.Id, @court.Number, @slot.Id, '@slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")', this)">
                                                 Rezervovat
                                             </div>
                                         }
@@ -193,18 +223,23 @@
     }
 </div>
 
-<!-- Modal pro POTVRZENÍ rezervace -->
-<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+<form id="afForm">@Html.AntiForgeryToken()</form>
+
+<!-- Modal pro POTVRZENÍ DRAFT rezervace -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="confirmModalLabel">Potvrzení rezervace</h5>
+                <h5 class="modal-title">Potvrzení rezervace</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
             </div>
-            <form method="post" asp-action="BookSlot">
+            <form method="post" asp-action="ConfirmDraft">
                 @Html.AntiForgeryToken()
                 <div class="modal-body text-start">
-                    <p class="mb-3">Chystáte se vytvořit rezervaci s následujícími parametry:</p>
+                    <div class="alert alert-warning py-2 mb-3 d-flex justify-content-between align-items-center">
+                        <small>Čas na dokončení:</small>
+                        <strong id="timerDisplay" class="text-danger fs-6">05:00</strong>
+                    </div>
                     <ul class="list-group mb-3">
                         <li class="list-group-item d-flex justify-content-between">
                             <span>Datum:</span>
@@ -219,25 +254,24 @@
                             <strong id="confirmModalTime">---</strong>
                         </li>
                     </ul>
-                    <input type="hidden" name="courtId" id="confirmModalCourtId" />
-                    <input type="hidden" name="timeSlotId" id="confirmModalTimeSlotId" />
+                    <input type="hidden" name="reservationId" class="modalReservationId" />
                     <input type="hidden" name="date" value="@selectedDate.ToString("yyyy-MM-dd")" />
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zpět</button>
-                    <button type="submit" class="btn btn-success">Potvrdit rezervaci</button>
+                    <button type="button" class="btn btn-outline-danger" onclick="cancelDraftAndClose()">Zrušit</button>
+                    <button type="submit" id="btnConfirmSubmit" class="btn btn-success">Potvrdit rezervaci</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
-<!-- Modal pro ZRUŠENÍ vlastní rezervace -->
-<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+<!-- Modal pro ZRUŠENÍ CONFIRMED rezervace -->
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title text-danger" id="cancelModalLabel">Zrušení rezervace</h5>
+                <h5 class="modal-title text-danger">Zrušení rezervace</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
             </div>
             <form method="post" asp-action="Cancel">
@@ -272,14 +306,132 @@
 
 @section Scripts {
     <script>
-        const confirmModal = document.getElementById('confirmModal');
-        if (confirmModal) {
-            confirmModal.addEventListener('show.bs.modal', function (event) {
-                const trigger = event.relatedTarget;
-                document.getElementById('confirmModalCourtId').value = trigger.getAttribute('data-court-id');
-                document.getElementById('confirmModalTimeSlotId').value = trigger.getAttribute('data-slot-id');
-                document.getElementById('confirmModalCourt').textContent = 'Kurt č. ' + trigger.getAttribute('data-court-number');
-                document.getElementById('confirmModalTime').textContent = trigger.getAttribute('data-slot-time');
+        let countdownInterval;
+        let currentDraftId = null;
+        let activeDraftCell = null;
+
+        async function startDraft(courtId, courtNumber, slotId, slotTime, element) {
+            activeDraftCell = element;
+
+            const token = document.querySelector('#afForm input[name="__RequestVerificationToken"]').value;
+            const formData = new FormData();
+            formData.append('courtId', courtId);
+            formData.append('timeSlotId', slotId);
+            formData.append('date', '@selectedDate.ToString("yyyy-MM-dd")');
+            formData.append('__RequestVerificationToken', token);
+
+            const res = await fetch('/Reservation/CreateDraft', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (!data.success) {
+                showToastError(data.message);
+                return;
+            }
+
+            currentDraftId = data.reservationId;
+            document.querySelectorAll('.modalReservationId').forEach(el => el.value = data.reservationId);
+            document.getElementById('confirmModalCourt').textContent = 'Kurt č. ' + courtNumber;
+            document.getElementById('confirmModalTime').textContent = slotTime;
+
+            // Změna stavu buňky v tabulce na "Dokončit rezervaci"
+            if (activeDraftCell) {
+                activeDraftCell.className = "slot-content cell-my-draft";
+                activeDraftCell.innerHTML = `<span>Dokončit rezervaci</span><span class="small opacity-75 fw-normal" style="font-size: 0.75rem;">(rozpracováno)</span>`;
+            }
+
+            startTimer(data.remainingSeconds, courtId, courtNumber, slotId, slotTime);
+            const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
+            modal.show();
+        }
+
+        function startTimer(seconds, courtId, courtNumber, slotId, slotTime) {
+            clearInterval(countdownInterval);
+            let time = seconds;
+            const display = document.getElementById('timerDisplay');
+            const btnSubmit = document.getElementById('btnConfirmSubmit');
+            btnSubmit.disabled = false;
+
+            countdownInterval = setInterval(async () => {
+                const m = Math.floor(time / 60).toString().padStart(2, '0');
+                const s = (time % 60).toString().padStart(2, '0');
+                display.textContent = `${m}:${s}`;
+
+                if (--time < 0) {
+                    clearInterval(countdownInterval);
+                    display.textContent = "00:00";
+                    btnSubmit.disabled = true;
+
+                    // 1. Zrušení na serveru
+                    await expireDraftOnServer();
+
+                    // 2. Skrytí modalu
+                    const modalEl = document.getElementById('confirmModal');
+                    const modalInstance = bootstrap.Modal.getInstance(modalEl);
+                    if (modalInstance) {
+                        modalInstance.hide();
+                    }
+
+                    // 3. Vracení buňky do stavu Volno
+                    resetCellToAvailable(courtId, courtNumber, slotId, slotTime);
+
+                    // 4. Zobrazení chybového oznamu
+                    showToastError("Čas pro dokončení rezervace vypršel. Termín byl uvolněn.");
+                }
+            }, 1000);
+        }
+
+        async function expireDraftOnServer() {
+            if (!currentDraftId) return;
+            const token = document.querySelector('#afForm input[name="__RequestVerificationToken"]').value;
+            const formData = new FormData();
+            formData.append('reservationId', currentDraftId);
+            formData.append('date', '@selectedDate.ToString("yyyy-MM-dd")');
+            formData.append('__RequestVerificationToken', token);
+
+            await fetch('/Reservation/CancelDraft', { method: 'POST', body: formData });
+            currentDraftId = null;
+        }
+
+        function resetCellToAvailable(courtId, courtNumber, slotId, slotTime) {
+            if (activeDraftCell) {
+                activeDraftCell.className = "slot-content cell-available";
+                activeDraftCell.innerHTML = "Rezervovat";
+                activeDraftCell.onclick = function () {
+                    startDraft(courtId, courtNumber, slotId, slotTime, this);
+                };
+            }
+        }
+
+        function showToastError(msg) {
+            const container = document.getElementById('alertContainer');
+            container.innerHTML = `
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            ${msg}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    `;
+        }
+
+        async function cancelDraftAndClose() {
+            clearInterval(countdownInterval);
+            await expireDraftOnServer();
+
+            const modalEl = document.getElementById('confirmModal');
+            const modalInstance = bootstrap.Modal.getInstance(modalEl);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+
+            if (activeDraftCell) {
+                activeDraftCell.className = "slot-content cell-available";
+                activeDraftCell.innerHTML = "Rezervovat";
+            }
+        }
+
+        const confirmModalEl = document.getElementById('confirmModal');
+        if (confirmModalEl) {
+            confirmModalEl.addEventListener('hidden.bs.modal', function () {
+                clearInterval(countdownInterval);
             });
         }
 

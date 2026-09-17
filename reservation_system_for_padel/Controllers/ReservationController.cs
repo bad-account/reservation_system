@@ -25,9 +25,25 @@ public class ReservationController : Controller
         }
     }
 
+    private async Task CleanupExpiredDraftsAsync()
+    {
+        var cutoff = DateTime.UtcNow.AddMinutes(-5);
+        var expiredDrafts = await _context.Reservations
+            .Where(r => r.State == ReservationState.Draft && r.CreatedAt < cutoff)
+            .ToListAsync();
+
+        if (expiredDrafts.Any())
+        {
+            _context.Reservations.RemoveRange(expiredDrafts);
+            await _context.SaveChangesAsync();
+        }
+    }
+
     // GET: /Reservation?date=2026-09-16
     public async Task<IActionResult> Index(DateOnly? date)
     {
+        await CleanupExpiredDraftsAsync();
+
         var targetDate = date ?? DateOnly.FromDateTime(DateTime.Today);
         var now = DateTime.Now;
         var today = DateOnly.FromDateTime(now);
@@ -38,19 +54,15 @@ public class ReservationController : Controller
             .OrderBy(c => c.Number)
             .ToListAsync();
 
-        // Načtení časových slotů
         var querySlots = _context.TimeSlots.AsQueryable();
 
-        // Pokud je vybrán dnešek, vyfiltrujeme sloty, jejichž StartTime už nastal nebo proběhl
         if (targetDate == today)
         {
-            // Počáteční hodina z aktuálního času (např. 12:05 -> 12:00)
             var currentHourStart = new TimeOnly(currentTime.Hour, 0);
             querySlots = querySlots.Where(s => s.StartTime > currentHourStart);
         }
         else if (targetDate < today)
         {
-            // Pro minulost nezobrazíme žádné sloty
             querySlots = querySlots.Where(s => false);
         }
 
@@ -58,6 +70,7 @@ public class ReservationController : Controller
             .OrderBy(s => s.StartTime)
             .ToListAsync();
 
+        // Načteme všechny rezervace včetně DRAFTů
         var reservations = await _context.Reservations
             .Include(r => r.User)
             .Where(r => r.Date == targetDate && r.State != ReservationState.Canceled && r.State != ReservationState.Rejected)
@@ -72,22 +85,39 @@ public class ReservationController : Controller
         return View();
     }
 
-    // POST: /Reservation/BookSlot
+    // POST: /Reservation/CreateDraft
     [HttpPost]
     [Authorize]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> BookSlot(int courtId, int timeSlotId, DateOnly date)
+    public async Task<IActionResult> CreateDraft(int courtId, int timeSlotId, DateOnly date)
     {
+        await CleanupExpiredDraftsAsync();
         int userId = CurrentUserId!.Value;
         var today = DateOnly.FromDateTime(DateTime.Today);
 
         if (date < today)
         {
-            TempData["ErrorMessage"] = "Nelze rezervovat termíny v minulosti.";
-            return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
+            return Json(new { success = false, message = "Nelze rezervovat termíny v minulosti." });
         }
 
-        // Pravidlo 1: Maximálně 2 aktivní rezervace do budoucna
+        // Pokud už uživatel má pro tento konkrétní slot rozpracovaný Draft, vrátíme ho
+        var existingDraft = await _context.Reservations
+            .FirstOrDefaultAsync(r => r.CourtId == courtId && r.TimeSlotId == timeSlotId && r.Date == date && r.State == ReservationState.Draft);
+
+        if (existingDraft != null)
+        {
+            if (existingDraft.UserId == userId)
+            {
+                var remainingSec = (int)(existingDraft.CreatedAt.AddMinutes(5) - DateTime.UtcNow).TotalSeconds;
+                return Json(new { success = true, reservationId = existingDraft.Id, remainingSeconds = Math.Max(0, remainingSec) });
+            }
+            else
+            {
+                return Json(new { success = false, message = "Tento termín právě rezervuje jiný uživatel." });
+            }
+        }
+
+        // Pravidlo 2 aktivní rezervace
         var activeCount = await _context.Reservations
             .CountAsync(r => r.UserId == userId
                           && r.Date >= today
@@ -95,39 +125,73 @@ public class ReservationController : Controller
 
         if (activeCount >= 2)
         {
-            TempData["ErrorMessage"] = "Máte již vyčerpaný limit 2 aktivních rezervací.";
-            return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
+            return Json(new { success = false, message = "Máte již vyčerpaný limit 2 aktivních rezervací." });
         }
 
-        // Pravidlo 2: Prevence překryvu / obsazení stejného kurtu
+        // Kontrola zda není obsazeno Confirmed rezervací
         bool alreadyBooked = await _context.Reservations
             .AnyAsync(r => r.CourtId == courtId
                         && r.Date == date
                         && r.TimeSlotId == timeSlotId
-                        && r.State != ReservationState.Canceled
-                        && r.State != ReservationState.Rejected);
+                        && r.State == ReservationState.Confirmed);
 
         if (alreadyBooked)
         {
-            TempData["ErrorMessage"] = "Tento termín kurtu byl právě obsazen.";
-            return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
+            return Json(new { success = false, message = "Tento termín kurtu je již obsazen." });
         }
 
-        var res = new Reservation
+        var draft = new Reservation
         {
             CourtId = courtId,
             TimeSlotId = timeSlotId,
             Date = date,
             UserId = userId,
-            State = ReservationState.Confirmed,
+            State = ReservationState.Draft,
             CreatedAt = DateTime.UtcNow
         };
 
-
-        _context.Reservations.Add(res);
+        _context.Reservations.Add(draft);
         await _context.SaveChangesAsync();
 
-        TempData["SuccessMessage"] = "Kurt byl úspěšně zarezervován!";
+        return Json(new { success = true, reservationId = draft.Id, remainingSeconds = 300 });
+    }
+
+    // POST: /Reservation/ConfirmDraft
+    [HttpPost]
+    [Authorize]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ConfirmDraft(int reservationId, DateOnly date)
+    {
+        await CleanupExpiredDraftsAsync();
+        int userId = CurrentUserId!.Value;
+
+        var reservation = await _context.Reservations.FindAsync(reservationId);
+        if (reservation == null || reservation.UserId != userId || reservation.State != ReservationState.Draft)
+        {
+            TempData["ErrorMessage"] = "Draft rezervace vypršel nebo nebyl nalezen.";
+            return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
+        }
+
+        reservation.State = ReservationState.Confirmed;
+        await _context.SaveChangesAsync();
+
+        TempData["SuccessMessage"] = "Rezervace byla úspěšně potvrzena!";
+        return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
+    }
+
+    // POST: /Reservation/CancelDraft
+    [HttpPost]
+    [Authorize]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CancelDraft(int reservationId, DateOnly date)
+    {
+        var reservation = await _context.Reservations.FindAsync(reservationId);
+        if (reservation != null && reservation.State == ReservationState.Draft)
+        {
+            _context.Reservations.Remove(reservation);
+            await _context.SaveChangesAsync();
+        }
+
         return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
     }
 
@@ -153,8 +217,7 @@ public class ReservationController : Controller
             return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
         }
 
-        // Místo změny stavu záznam rovnou odstraníme z DB
-        _context.Reservations.Remove(reservation);
+        reservation.State = ReservationState.Canceled;
         await _context.SaveChangesAsync();
 
         TempData["SuccessMessage"] = "Rezervace byla úspěšně zrušena a termín je opět volný.";
@@ -164,6 +227,7 @@ public class ReservationController : Controller
     [Authorize]
     public async Task<IActionResult> MyReservations()
     {
+        await CleanupExpiredDraftsAsync();
         int userId = CurrentUserId!.Value;
         var now = DateTime.Now;
         var today = DateOnly.FromDateTime(now);
