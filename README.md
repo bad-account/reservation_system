@@ -20,7 +20,7 @@ Webová aplikace v ASP.NET Core MVC (C#) s Entity Framework Core a SQLite pro re
    ```
 
 3. **Příprava databáze:**
-   Databáze SQLite (`padel.db`) se vytvoří a naplní výchozími kurty a časovými sloty automaticky při prvním spuštění díky `db.Database.Migrate()` / `EnsureCreated()\`. Není nutný žádný externí databázový server.
+   Databáze SQLite (`padel.db`) se vytvoří a naplní výchozími kurty a časovými sloty automaticky při prvním spuštění díky `db.Database.Migrate()` / `EnsureCreated()`. Není nutný žádný externí databázový server.
 
 4. **Konfigurace (volitelné – e-mailové notifikace):**
    Pro plnou funkčnost odesílání e-mailů nastavte lokální User Secrets:
@@ -39,4 +39,4 @@ Webová aplikace v ASP.NET Core MVC (C#) s Entity Framework Core a SQLite pro re
    dotnet build
    dotnet run --project reservation_system_for_padel
    ```
-   Aplikace je dostupná na adrese zobrazené v konzoli (obvykle \`https://localhost:7xxx\` nebo \`http://localhost:5xxx\`).
+   Aplikace je dostupná na adrese zobrazené v konzoli (obvykle `https://localhost:7xxx` nebo `http://localhost:5xxx`).
