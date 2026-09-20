@@ -18,8 +18,7 @@ namespace reservation_system_for_padel.Services
 
             // Jeden kurt může mít v daný den a slot pouze jednu platnou rezervaci
             modelBuilder.Entity<Reservation>()
-                .HasIndex(r => new { r.CourtId, r.Date, r.TimeSlotId })
-                .IsUnique();
+                .HasIndex(r => new { r.CourtId, r.Date, r.TimeSlotId });
 
             // Seed kurtů
             modelBuilder.Entity<Court>().HasData(

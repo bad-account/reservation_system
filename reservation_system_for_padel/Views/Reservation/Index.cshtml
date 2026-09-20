@@ -188,8 +188,7 @@
                                     {
                                         <td class="slot-cell">
                                             <div class="slot-content cell-occupied">
-                                                <span>Obsazeno</span>
-                                                <span class="small opacity-75 fw-normal" style="font-size: 0.75rem;">@res.User.Name @res.User.Surname[0].</span>
+                                                <span>Obsazeno</span>                                          
                                             </div>
                                         </td>
                                     }
@@ -258,7 +257,7 @@
                     <input type="hidden" name="date" value="@selectedDate.ToString("yyyy-MM-dd")" />
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-danger" onclick="cancelDraftAndClose()">Zrušit</button>
+                    <button type="button" class="btn btn-outline-danger" onclick="cancelDraftAndClose()">Zrušit rezervaci</button>
                     <button type="submit" id="btnConfirmSubmit" class="btn btn-success">Potvrdit rezervaci</button>
                 </div>
             </form>

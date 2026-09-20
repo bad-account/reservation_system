@@ -25,13 +25,16 @@ namespace reservation_system_for_padel
 
             // Add services to the container.
             builder.Services.AddControllersWithViews();
+            builder.Services.AddScoped<IEmailSender, EmailSender>();
 
             var app = builder.Build();
 
             using (var scope = app.Services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                db.Database.Migrate(); 
+                db.Database.Migrate();
+
+                db.Database.ExecuteSqlRaw("DROP INDEX IF EXISTS IX_Reservations_CourtId_Date_TimeSlotId;");
             }
 
             // Configure the HTTP request pipeline.

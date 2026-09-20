@@ -4,16 +4,19 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using reservation_system_for_padel.Models;
 using reservation_system_for_padel.Services;
+using QRCoder;
 
 namespace reservation_system_for_padel.Controllers;
 
 public class ReservationController : Controller
 {
     private readonly AppDbContext _context;
+    private readonly IEmailSender _emailSender;
 
-    public ReservationController(AppDbContext context)
+    public ReservationController(AppDbContext context, IEmailSender emailSender)
     {
         _context = context;
+        _emailSender = emailSender;
     }
 
     private int? CurrentUserId
@@ -162,21 +165,53 @@ public class ReservationController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ConfirmDraft(int reservationId, DateOnly date)
     {
-        await CleanupExpiredDraftsAsync();
-        int userId = CurrentUserId!.Value;
+        await CleanupExpiredDraftsAsync(); //[cite: 6]
+        int userId = CurrentUserId!.Value; //[cite: 6]
 
-        var reservation = await _context.Reservations.FindAsync(reservationId);
-        if (reservation == null || reservation.UserId != userId || reservation.State != ReservationState.Draft)
+        var reservation = await _context.Reservations
+            .Include(r => r.Court)
+            .Include(r => r.TimeSlot)
+            .Include(r => r.User)
+            .FirstOrDefaultAsync(r => r.Id == reservationId);
+
+        if (reservation == null || reservation.UserId != userId || reservation.State != ReservationState.Draft) //[cite: 6]
         {
-            TempData["ErrorMessage"] = "Draft rezervace vypršel nebo nebyl nalezen.";
-            return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
+            TempData["ErrorMessage"] = "Draft rezervace vypršel nebo nebyl nalezen."; //[cite: 6]
+            return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") }); //[cite: 6]
         }
 
-        reservation.State = ReservationState.Confirmed;
-        await _context.SaveChangesAsync();
+        reservation.State = ReservationState.Confirmed; //[cite: 6]
+        await _context.SaveChangesAsync(); //[cite: 6]
 
-        TempData["SuccessMessage"] = "Rezervace byla úspěšně potvrzena!";
-        return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
+        // 1. Generování QR kódu pro e-mail
+        var qrPayload = $"PADEL-RESERVATION|ID:{reservation.Id}|COURT:{reservation.Court.Number}|DATE:{reservation.Date:yyyy-MM-dd}|TIME:{reservation.TimeSlot.StartTime:HH:mm}-{reservation.TimeSlot.EndTime:HH:mm}|USER:{reservation.User.Email}"; //[cite: 6]
+
+        using var qrGenerator = new QRCodeGenerator(); //[cite: 6]
+        using var qrCodeData = qrGenerator.CreateQrCode(qrPayload, QRCodeGenerator.ECCLevel.Q); //[cite: 6]
+        using var qrCode = new PngByteQRCode(qrCodeData); //[cite: 6]
+        byte[] qrCodeBytes = qrCode.GetGraphic(20); //[cite: 6]
+
+        // 2. Odeslání e-mailu s přiloženým QR kódem
+        if (!string.IsNullOrWhiteSpace(reservation.User.Email))
+        {
+            var subject = $"Potvrzení rezervace – Kurt č. {reservation.Court.Number} - Padel Ostrava";
+            var body = $@"
+            <div style='font-family: Arial, sans-serif; line-height: 1.5;'>
+                <h2 style='color: #0d6efd;'>Rezervace kurtu je potvrzena!</h2>
+                <p>Ahoj <strong>{reservation.User.Name}</strong>,</p>
+                <p>těšíme se na tebe na hřišti. Zde jsou podrobnosti:</p>
+                <ul>
+                    <li><strong>Kurt:</strong> č. {reservation.Court.Number}</li>
+                    <li><strong>Datum:</strong> {reservation.Date:dd. MM. yyyy}</li>
+                    <li><strong>Čas:</strong> {reservation.TimeSlot.StartTime:HH:mm} – {reservation.TimeSlot.EndTime:HH:mm}</li>
+                </ul>
+            </div>";
+
+            await _emailSender.SendEmailAsync(reservation.User.Email, subject, body, qrCodeBytes);
+        }
+
+        TempData["SuccessMessage"] = "Rezervace byla úspěšně potvrzena a QR kód vám byl odeslán na e-mail!";
+        return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") }); //[cite: 6]
     }
 
     // POST: /Reservation/CancelDraft
@@ -201,28 +236,54 @@ public class ReservationController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Cancel(int reservationId, DateOnly date)
     {
-        int userId = CurrentUserId!.Value;
-        bool isAdmin = User.IsInRole("Admin");
+        int userId = CurrentUserId!.Value; 
+    bool isAdmin = User.IsInRole("Admin");
 
-        var reservation = await _context.Reservations.FindAsync(reservationId);
-        if (reservation == null)
-        {
-            TempData["ErrorMessage"] = "Rezervace nebyla nalezena.";
-            return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
-        }
+    // Načteme rezervaci včetně souvisejících entit pro e-mail
+    var reservation = await _context.Reservations
+        .Include(r => r.Court)
+        .Include(r => r.TimeSlot)
+        .Include(r => r.User)
+        .FirstOrDefaultAsync(r => r.Id == reservationId);
 
-        if (reservation.UserId != userId && !isAdmin)
-        {
-            TempData["ErrorMessage"] = "Nemáte oprávnění zrušit cizí rezervaci.";
-            return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
-        }
-
-        reservation.State = ReservationState.Canceled;
-        await _context.SaveChangesAsync();
-
-        TempData["SuccessMessage"] = "Rezervace byla úspěšně zrušena a termín je opět volný.";
+        if (reservation == null) 
+    {
+            TempData["ErrorMessage"] = "Rezervace nebyla nalezena."; 
         return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") });
     }
+
+        if (reservation.UserId != userId && !isAdmin) 
+    {
+            TempData["ErrorMessage"] = "Nemáte oprávnění zrušit cizí rezervaci."; 
+        return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") }); 
+    }
+
+        reservation.State = ReservationState.Canceled; 
+    await _context.SaveChangesAsync();
+
+    // Odeslání e-mailu o zrušení
+    if (!string.IsNullOrWhiteSpace(reservation.User?.Email))
+        {
+            var subject = $"Zrušení rezervace – Kurt č. {reservation.Court.Number} - Padel Ostrava";
+            var body = $@"
+            <div style='font-family: Arial, sans-serif; line-height: 1.5;'>
+                <h2 style='color: #dc3545;'>Vaše rezervace byla zrušena</h2>
+                <p>Ahoj <strong>{reservation.User.Name}</strong>,</p>
+                <p>potvrzujeme zrušení následující rezervace:</p>
+                <ul>
+                    <li><strong>Kurt:</strong> č. {reservation.Court.Number}</li>
+                    <li><strong>Datum:</strong> {reservation.Date:dd. MM. yyyy}</li>
+                    <li><strong>Čas:</strong> {reservation.TimeSlot.StartTime:HH:mm} – {reservation.TimeSlot.EndTime:HH:mm}</li>
+                </ul>
+            </div>";
+
+            // Parametr pro QR kód necháme prázdný (null)
+            await _emailSender.SendEmailAsync(reservation.User.Email, subject, body);
+        }
+
+        TempData["SuccessMessage"] = "Rezervace byla úspěšně zrušena a potvrzení vám bylo zasláno na e-mail.";
+        return RedirectToAction(nameof(Index), new { date = date.ToString("yyyy-MM-dd") }); 
+}
 
     [Authorize]
     public async Task<IActionResult> MyReservations()
@@ -260,5 +321,38 @@ public class ReservationController : Controller
         }
 
         return View(myReservations);
+    }
+
+    [HttpGet]
+    [Authorize]
+    public async Task<IActionResult> GetQrCode(int reservationId)
+    {
+        int userId = CurrentUserId!.Value;
+        bool isAdmin = User.IsInRole("Admin");
+
+        var reservation = await _context.Reservations
+            .Include(r => r.Court)
+            .Include(r => r.TimeSlot)
+            .Include(r => r.User)
+            .FirstOrDefaultAsync(r => r.Id == reservationId);
+
+        if (reservation == null)
+        {
+            return NotFound();
+        }
+
+        if (reservation.UserId != userId && !isAdmin)
+        {
+            return Forbid();
+        }
+
+        var qrPayload = $"PADEL-RESERVATION|ID:{reservation.Id}|COURT:{reservation.Court.Number}|DATE:{reservation.Date:yyyy-MM-dd}|TIME:{reservation.TimeSlot.StartTime:HH:mm}-{reservation.TimeSlot.EndTime:HH:mm}|USER:{reservation.User.Email}";
+
+        using var qrGenerator = new QRCodeGenerator();
+        using var qrCodeData = qrGenerator.CreateQrCode(qrPayload, QRCodeGenerator.ECCLevel.Q);
+        using var qrCode = new PngByteQRCode(qrCodeData);
+        byte[] qrCodeBytes = qrCode.GetGraphic(20);
+
+        return File(qrCodeBytes, "image/png");
     }
 }

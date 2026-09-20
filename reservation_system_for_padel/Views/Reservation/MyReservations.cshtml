@@ -48,7 +48,6 @@
                 <tbody>
                     @foreach (var res in Model)
                     {
-                        // Určení, zda je termín minulý (expirovaný)
                         bool isPast = res.Date < today || (res.Date == today && res.TimeSlot.EndTime <= currentTime);
                         bool isExpired = res.State == reservation_system_for_padel.Models.ReservationState.Expired || isPast;
 
@@ -81,6 +80,14 @@
                             <td class="text-end">
                                 @if (!isExpired && res.State == reservation_system_for_padel.Models.ReservationState.Confirmed)
                                 {
+                                    <!-- Tlačítko pro QR kód -->
+                                    <button type="button"
+                                            class="btn btn-outline-dark btn-sm me-1"
+                                            onclick="showQrModal(@res.Id, '@res.Court.Number', '@res.Date.ToString("dd.MM.yyyy")', '@res.TimeSlot.StartTime.ToString("HH:mm") - @res.TimeSlot.EndTime.ToString("HH:mm")')">
+                                        Vstupní QR kód
+                                    </button>
+
+                                    <!-- Tlačítko pro zrušení -->
                                     <form method="post" asp-action="Cancel" class="d-inline">
                                         @Html.AntiForgeryToken()
                                         <input type="hidden" name="reservationId" value="@res.Id" />
@@ -98,3 +105,36 @@
         </div>
     }
 </div>
+
+<!-- Modal pro zobrazení QR kódu -->
+<div class="modal fade" id="qrModal" tabindex="-1" aria-labelledby="qrModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content text-center">
+            <div class="modal-header">
+                <h5 class="modal-title" id="qrModalLabel">Přístupový QR kód</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
+            </div>
+            <div class="modal-body py-4">
+                <p id="qrDetails" class="fw-semibold mb-3"></p>
+                <div class="d-flex justify-content-center">
+                    <img id="qrImage" src="" alt="QR kód pro vstup" class="img-fluid border p-2 rounded shadow-sm" style="max-width: 250px;" />
+                </div>
+                <small class="text-muted d-block mt-3">Přiložte tento QR kód ke čtečce u vstupu na kurt.</small>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zavřít</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function showQrModal(resId, courtNum, date, time) {
+            document.getElementById('qrDetails').innerText = `Kurt č. ${courtNum} | ${date} (${time})`;
+            document.getElementById('qrImage').src = `/Reservation/GetQrCode?reservationId=${resId}`;
+            var myModal = new bootstrap.Modal(document.getElementById('qrModal'));
+            myModal.show();
+        }
+    </script>
+}
