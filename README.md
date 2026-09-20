@@ -46,29 +46,27 @@ A web application built with ASP.NET Core MVC (C#), Entity Framework Core, and S
 
 End-to-end flow for creating and verifying a court reservation:
 
-1. **Request:**
-   - **Method & Endpoint:** `POST /Reservation/BookSlot` (or API endpoint `POST /api/reservations`)
-   - **Payload / Form data:**
-     - `courtId`: 1 (Court No. 1)
-     - `timeSlotId`: 2 (e.g., 09:00–10:00)
-     - `date`: "2026-10-01"
-     - Authentication cookie / logged-in user identifier (`UserId`: 1)
+1. **Request (Two-step reservation flow):**
+   - **Step 1 – Hold slot:** Request `POST /Reservation/CreateDraft` with `courtId`, `timeSlotId`, and `date`. The system creates a temporary `Draft` reservation with a 5-minute countdown.
+   - **Step 2 – Finalize:** Submitting the modal form executes `POST /Reservation/ConfirmDraft`
 
 2. **Validate (Domain validation and business rules):**
-   - Check that the selected date/time is not in the past.
-   - Check that the user has not exceeded the limit of 2 active future reservations.
-   - Check slot availability (no existing active/confirmed reservation for the same `CourtId`, `Date`, and `TimeSlotId`).
+   - Prevents selecting dates or time slots in the past.
+   - Enforces a business limit of maximum **2 active reservations** (`Draft` or `Confirmed`) per user.
+   - Verifies slot availability to prevent double-booking (`Confirmed` state check).
+   - Automatically cleans up expired `Draft` records older than 5 minutes (`CleanupExpiredDraftsAsync`).
 
 3. **Persist (State persistence):**
-   - Create a `Reservation` entity in the `Confirmed` state with a `CreatedAt` timestamp.
-   - Save to the SQLite database via Entity Framework Core (`SaveChangesAsync()`).
+   - Updates the `Reservation` entity state from `Draft` to `Confirmed`.
+   - Saves changes to the SQLite database via Entity Framework Core (`SaveChangesAsync()`).
 
-4. **Return reservation ID (Response):**
-   - Return the generated unique `ReservationId` (via HTTP redirect / JSON response with HTTP 200/201).
-   - Send a confirmation notification in the background.
+4. **Return & Notification (Response):**
+   - Generates a QR code containing reservation payload data.
+   - Sends a confirmation email with details and the attached QR code image via `IEmailSender`.
+   - Redirects to `/Reservation` with a success message stored in `TempData["SuccessMessage"]`.
 
 5. **Automated check:**
-   - Integration test / automated script:
-     - Sends an HTTP POST request with the defined payload.
-     - Verifies the HTTP status code (success) and presence of the `ReservationId`.
-     - Executes a verification query against the database (or calls `GET /Reservation/MyReservations`) to confirm the reservation with the matching ID actually exists and is in the `Confirmed` state.
+   - Integration test / verification flow:
+     - Sends `POST /Reservation/CreateDraft` and receives a JSON response containing `reservationId`.
+     - Sends `POST /Reservation/ConfirmDraft` with the returned `reservationId`.
+     - Queries the SQLite database or calls `GET /Reservation/MyReservations` to confirm the reservation state is set to `Confirmed`.
