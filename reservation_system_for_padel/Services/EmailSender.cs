@@ -43,7 +43,7 @@ public class EmailSender : IEmailSender
                 htmlBody += $@"
                     <div style='margin-top: 20px;'>
                         <h4>Vstupní QR kód</h4>
-                        <img src='cid:{qrAttachment.ContentId}' alt='Vstupní QR kód' style='border: 1px solid #ccc; padding: 10px; border-radius: 8px; width: 220px; height: 220px;' />
+                        <img src='cid:{qrAttachment.ContentId}' alt='QR kód pro vstup na kurt' style='border: 1px solid #ccc; padding: 10px; border-radius: 8px; width: 220px; height: 220px;' />
                         <p style='color: #666; font-size: 13px; margin-top: 5px;'>Ukažte tento kód u čtečky u vstupu na kurt.</p>
                     </div>";
             }
