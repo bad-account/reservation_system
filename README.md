@@ -1,74 +1,74 @@
-# Padel Ostrava – Rezervační systém
+# Padel Ostrava – Reservation System
 
-Webová aplikace v ASP.NET Core MVC (C#) s Entity Framework Core a SQLite pro rezervaci kurtů na padel.
+A web application built with ASP.NET Core MVC (C#), Entity Framework Core, and SQLite for booking padel courts.
 
-## Požadavky
-- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) nebo novější
+## Prerequisites
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) or newer
 - Visual Studio 2022 / VS Code / Rider
 
-## Instalace a první spuštění
+## Installation and First Run
 
-1. **Klonování repozitáře:**
+1. **Clone the repository:**
    ```bash
-   git clone <URL_REPOZITARE>
+   git clone <REPOSITORY_URL>
    cd reservation_system_for_padel
    ```
 
-2. **Obnova závislostí:**
+2. **Restore dependencies:**
    ```bash
    dotnet restore
    ```
 
-3. **Příprava databáze:**
-   Databáze SQLite (`padel.db`) se vytvoří a naplní výchozími kurty a časovými sloty automaticky při prvním spuštění díky `db.Database.Migrate()` / `EnsureCreated()`. Není nutný žádný externí databázový server.
+3. **Database setup:**
+   The SQLite database (`padel.db`) is automatically created and populated with default courts and time slots upon the first launch using `db.Database.Migrate()` / `EnsureCreated()`. No external database server is required.
 
-4. **Konfigurace (volitelné – e-mailové notifikace):**
-   Pro plnou funkčnost odesílání e-mailů nastavte lokální User Secrets:
-  ```bash
+4. **Configuration (optional – email notifications):**
+   To enable full email sending functionality, configure local User Secrets:
+   ```bash
    dotnet user-secrets init
    dotnet user-secrets set "SmtpSettings:Server" "smtp.seznam.cz"
    dotnet user-secrets set "SmtpSettings:Port" "465"
-   dotnet user-secrets set "SmtpSettings:SenderEmail" "vas-email@seznam.cz"
-   dotnet user-secrets set "SmtpSettings:Username" "vas-email@seznam.cz"
-   dotnet user-secrets set "SmtpSettings:Password" "vase-heslo"
+   dotnet user-secrets set "SmtpSettings:SenderEmail" "your-email@seznam.cz"
+   dotnet user-secrets set "SmtpSettings:Username" "your-email@seznam.cz"
+   dotnet user-secrets set "SmtpSettings:Password" "your-password"
    ```
-   *(Pokud hodnoty nenastavíte, aplikace poběží dál, chyby odeslání se zalogují do konzole bez pádu systému).*
+   *(If values are not set, the application will continue to run normally, and email delivery errors will be logged to the console without crashing the system).*
 
-5. **Sestavení a spuštění:**
+5. **Build and run:**
    ```bash
    dotnet build
    dotnet run --project reservation_system_for_padel
    ```
-   Aplikace je dostupná na adrese zobrazené v konzoli (obvykle `https://localhost:7xxx` nebo `http://localhost:5xxx`).
+   The application will be accessible at the URL displayed in the console (typically `https://localhost:7xxx` or `http://localhost:5xxx`).
 
 
 ## CP1 Walking Skeleton
 
-End-to-end cesta pro vytvoření a ověření rezervace kurtu:
+End-to-end flow for creating and verifying a court reservation:
 
 1. **Request:**
-   - **Metoda & Endpoint:** `POST /Reservation/BookSlot` (případně API endpoint `POST /api/reservations`)
+   - **Method & Endpoint:** `POST /Reservation/BookSlot` (or API endpoint `POST /api/reservations`)
    - **Payload / Form data:**
-     - `courtId`: 1 (Kurt č. 1)
-     - `timeSlotId`: 2 (např. 09:00–10:00)
+     - `courtId`: 1 (Court No. 1)
+     - `timeSlotId`: 2 (e.g., 09:00–10:00)
      - `date`: "2026-10-01"
-     - Autentizační cookie / identifikátor přihlášeného uživatele (`UserId`: 1)
+     - Authentication cookie / logged-in user identifier (`UserId`: 1)
 
-2. **Validate (Doménová validace a business pravidla):**
-   - Ověření, že vybraný termín není v minulosti.
-   - Ověření, že uživatel nepřekročil limit 2 aktivních budoucích rezervací.
-   - Ověření dostupnosti slotu (žádná existující aktivní/potvrzená rezervace pro shodný `CourtId`, `Date` a `TimeSlotId`).
+2. **Validate (Domain validation and business rules):**
+   - Check that the selected date/time is not in the past.
+   - Check that the user has not exceeded the limit of 2 active future reservations.
+   - Check slot availability (no existing active/confirmed reservation for the same `CourtId`, `Date`, and `TimeSlotId`).
 
-3. **Persist (Uložení stavu):**
-   - Vytvoření entity `Reservation` ve stavu `Confirmed` s časovým razítkem `CreatedAt`.
-   - Zápis do SQLite databáze přes Entity Framework Core (`SaveChangesAsync()`).
+3. **Persist (State persistence):**
+   - Create a `Reservation` entity in the `Confirmed` state with a `CreatedAt` timestamp.
+   - Save to the SQLite database via Entity Framework Core (`SaveChangesAsync()`).
 
-4. **Return reservation ID (Odpověď):**
-   - Návrat vygenerovaného unikátního `ReservationId` (v HTTP redirectu / JSON response s kódem 200/201).
-   - Odeslání potvrzovací notifikace na pozadí.
+4. **Return reservation ID (Response):**
+   - Return the generated unique `ReservationId` (via HTTP redirect / JSON response with HTTP 200/201).
+   - Send a confirmation notification in the background.
 
-5. **Automated check (Automatizované ověření):**
-   - Integrační test / automatizovaný skript:
-     - Pošle HTTP POST požadavek s definovaným payloadem.
-     - Ověří HTTP status kód (úspěch) a přítomnost `ReservationId`.
-     - Provede kontrolní dotaz do databáze (případně `GET /Reservation/MyReservations`), kde ověří, že rezervace se shodným ID v databázi skutečně existuje a je ve stavu `Confirmed`.
+5. **Automated check:**
+   - Integration test / automated script:
+     - Sends an HTTP POST request with the defined payload.
+     - Verifies the HTTP status code (success) and presence of the `ReservationId`.
+     - Executes a verification query against the database (or calls `GET /Reservation/MyReservations`) to confirm the reservation with the matching ID actually exists and is in the `Confirmed` state.
