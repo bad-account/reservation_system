@@ -45,4 +45,3 @@ Access Control System (QR code generation for easy court access)
 Courts are going to have fixed opening hours (8:00-22:00) and fixed time slots (60 minutes).
 
 ## Unknown
-??????????
