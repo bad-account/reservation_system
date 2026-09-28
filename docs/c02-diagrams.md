@@ -31,7 +31,7 @@ stateDiagram-v2
     DRAFT --> CONFIRMED : confirmDraft [within 5 min TTL]
     DRAFT --> REJECTED : cancelDraft / timeout [TTL > 5 min]
 
-    CONFIRMED --> CANCELED : cancelReservation [by Owner or Admin]
+    CONFIRMED --> CANCELED : cancelReservation [by user]
     CONFIRMED --> EXPIRED : timePassed [Date & TimeSlot end passed]
 
     REJECTED --> [*]
