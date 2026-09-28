@@ -80,7 +80,7 @@ flowchart TD
     
     AuthCheck -- No --> LoginRedirect[Redirect to Login page] --> EndLogin([End])
     
-    AuthCheck -- Yes --> PermCheck{Is user Reservation Owner<br/>OR has Admin role?}
+    AuthCheck -- Yes --> PermCheck{Is user Reservation Owner?}
     
     PermCheck -- No --> ErrPerm[Display error: Access Denied] --> EndPerm([End])
     
