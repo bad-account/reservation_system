@@ -1,5 +1,26 @@
-# Usecase diagram
+# Use case diagram
+```mermaid
+flowchart LR
+    subgraph SystemBoundary ["Padel Court Reservation System"]
+        UC1[Check Availability]
+        UC2[Create Reservation]
+        UC3[Confirm Reservation]
+        UC4[Cancel Reservation]
+    end
 
+    User[User]
+    NotificationService[Notification Service]
+    QRCodeGenerator[Access QR Code Generator]
+
+    User --> UC1
+    User --> UC2
+    User --> UC3
+    User --> UC4
+
+    UC3 --> NotificationService
+    UC3 --> QRCodeGenerator
+    UC4 --> NotificationService
+```
 
 # Reservation state diagram
 
