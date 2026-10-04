@@ -79,6 +79,13 @@
         cursor: not-allowed;
         font-weight: 500;
     }
+
+    .cell-pending {
+        background-color: #fff8e1;
+        color: #f57f17;
+        font-weight: 600;
+        cursor: pointer;
+    }
 </style>
 
 <div class="container py-4">
@@ -129,7 +136,9 @@
                         <th style="width: 15%;">Čas</th>
                         @foreach (var court in courts)
                         {
-                            <th style="width: @courtColumnWidth;">Kurt č. @court.Number</th>
+                            <th style="width: @courtColumnWidth;">
+                                Kurt č. @court.Number@(court.Number == 4 ? " *" : "")
+                            </th>
                         }
                     </tr>
                 </thead>
@@ -170,6 +179,31 @@
                                             </td>
                                         }
                                     }
+                                    else if (res.State == ReservationState.PendingApproval)
+                                    {
+                                        if (isMine)
+                                        {
+                                            <td class="slot-cell">
+                                                <div class="slot-content cell-pending"
+                                                     data-bs-toggle="modal"
+                                                     data-bs-target="#cancelModal"
+                                                     data-reservation-id="@res.Id"
+                                                     data-court-number="@court.Number"
+                                                     data-slot-time="@slot.StartTime.ToString("HH:mm") – @slot.EndTime.ToString("HH:mm")">
+                                                    <span>Čeká na schválení</span>
+                                                    <span class="small opacity-75 fw-normal" style="font-size: 0.75rem;">(kliknutím zrušit)</span>
+                                                </div>
+                                            </td>
+                                        }
+                                        else
+                                        {
+                                            <td class="slot-cell">
+                                                <div class="slot-content cell-occupied">
+                                                    <span>Obsazeno</span>
+                                                </div>
+                                            </td>
+                                        }
+                                    }
                                     else if (isMine)
                                     {
                                         <td class="slot-cell">
@@ -188,7 +222,7 @@
                                     {
                                         <td class="slot-cell">
                                             <div class="slot-content cell-occupied">
-                                                <span>Obsazeno</span>                                          
+                                                <span>Obsazeno</span>
                                             </div>
                                         </td>
                                     }
@@ -206,7 +240,7 @@
                                         else
                                         {
                                             <a asp-controller="Account" asp-action="Login"
-                           asp-route-returnUrl="@Url.Action("Index", "Reservation", new { date = selectedDate.ToString("yyyy-MM-dd") })"
+                                               asp-route-returnUrl="@Url.Action("Index", "Reservation", new { date = selectedDate.ToString("yyyy-MM-dd") })"
                                                class="slot-content cell-available text-decoration-none">
                                                 Rezervovat
                                             </a>
@@ -218,6 +252,10 @@
                     }
                 </tbody>
             </table>
+        </div>
+
+        <div class="mt-2 text-muted small">
+            * <strong>Kurt č. 4:</strong> Jedná se o prémiový/turnajový kurt – rezervace podléhá schválení správcem areálu.
         </div>
     }
 </div>
@@ -332,7 +370,6 @@
             document.getElementById('confirmModalCourt').textContent = 'Kurt č. ' + courtNumber;
             document.getElementById('confirmModalTime').textContent = slotTime;
 
-            // Změna stavu buňky v tabulce na "Dokončit rezervaci"
             if (activeDraftCell) {
                 activeDraftCell.className = "slot-content cell-my-draft";
                 activeDraftCell.innerHTML = `<span>Dokončit rezervaci</span><span class="small opacity-75 fw-normal" style="font-size: 0.75rem;">(rozpracováno)</span>`;
@@ -360,20 +397,15 @@
                     display.textContent = "00:00";
                     btnSubmit.disabled = true;
 
-                    // 1. Zrušení na serveru
                     await expireDraftOnServer();
 
-                    // 2. Skrytí modalu
                     const modalEl = document.getElementById('confirmModal');
                     const modalInstance = bootstrap.Modal.getInstance(modalEl);
                     if (modalInstance) {
                         modalInstance.hide();
                     }
 
-                    // 3. Vracení buňky do stavu Volno
                     resetCellToAvailable(courtId, courtNumber, slotId, slotTime);
-
-                    // 4. Zobrazení chybového oznamu
                     showToastError("Čas pro dokončení rezervace vypršel. Termín byl uvolněn.");
                 }
             }, 1000);
@@ -404,11 +436,11 @@
         function showToastError(msg) {
             const container = document.getElementById('alertContainer');
             container.innerHTML = `
-                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                            ${msg}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                    `;
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    ${msg}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
         }
 
         async function cancelDraftAndClose() {

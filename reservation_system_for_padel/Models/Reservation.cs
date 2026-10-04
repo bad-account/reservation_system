@@ -3,6 +3,7 @@
     public enum ReservationState
     {
         Draft,
+        PendingApproval,
         Confirmed,
         Rejected,
         Canceled,

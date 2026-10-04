@@ -16,18 +16,32 @@ namespace reservation_system_for_padel.Services
         {
             base.OnModelCreating(modelBuilder);
 
-            // Jeden kurt může mít v daný den a slot pouze jednu platnou rezervaci
+            // Neunikátní index pro rychlé dotazování na obsazenost
             modelBuilder.Entity<Reservation>()
                 .HasIndex(r => new { r.CourtId, r.Date, r.TimeSlotId });
 
-            // Seed kurtů
+            // Seed kurtů (včetně prémiového Kurtu č. 4)
             modelBuilder.Entity<Court>().HasData(
                 new Court { Id = 1, Number = 1, IsActive = true },
                 new Court { Id = 2, Number = 2, IsActive = true },
-                new Court { Id = 3, Number = 3, IsActive = true }
+                new Court { Id = 3, Number = 3, IsActive = true },
+                new Court { Id = 4, Number = 4, IsActive = true }
             );
 
-            // Seed 60min slotů (8:00 - 22:00)
+            // Seed výchozího administrátora pro schvalování (admin@padel.cz / admin123)
+            modelBuilder.Entity<User>().HasData(
+                new User
+                {
+                    Id = 1,
+                    Name = "Správce",
+                    Surname = "Areálu",
+                    Email = "admin@padel.cz",
+                    PasswordHash = "admin123",
+                    Role = UserRole.Admin
+                }
+            );
+
+            // Seed 60min slotů (08:00 - 22:00)
             var slots = new List<TimeSlot>();
             int slotId = 1;
             for (int hour = 8; hour < 22; hour++)

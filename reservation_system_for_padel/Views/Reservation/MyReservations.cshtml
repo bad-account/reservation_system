@@ -72,20 +72,27 @@
                                 {
                                     <span class="badge bg-success">Aktivní</span>
                                 }
+                                else if (res.State == reservation_system_for_padel.Models.ReservationState.PendingApproval)
+                                {
+                                    <span class="badge bg-warning text-dark">Čeká na schválení</span>
+                                }
                                 else
                                 {
                                     <span class="badge bg-warning text-dark">@res.State</span>
                                 }
                             </td>
                             <td class="text-end">
-                                @if (!isExpired && res.State == reservation_system_for_padel.Models.ReservationState.Confirmed)
+                                @if (!isExpired && (res.State == reservation_system_for_padel.Models.ReservationState.Confirmed || res.State == reservation_system_for_padel.Models.ReservationState.PendingApproval))
                                 {
-                                    <!-- Tlačítko pro QR kód -->
-                                    <button type="button"
-                                            class="btn btn-outline-dark btn-sm me-1"
-                                            onclick="showQrModal(@res.Id, '@res.Court.Number', '@res.Date.ToString("dd.MM.yyyy")', '@res.TimeSlot.StartTime.ToString("HH:mm") - @res.TimeSlot.EndTime.ToString("HH:mm")')">
-                                        Vstupní QR kód
-                                    </button>
+                                    @if (res.State == reservation_system_for_padel.Models.ReservationState.Confirmed)
+                                    {
+                                        <!-- Tlačítko pro QR kód -->
+                                        <button type="button"
+                                                class="btn btn-outline-dark btn-sm me-1"
+                                                onclick="showQrModal(@res.Id, '@res.Court.Number', '@res.Date.ToString("dd.MM.yyyy")', '@res.TimeSlot.StartTime.ToString("HH:mm") - @res.TimeSlot.EndTime.ToString("HH:mm")')">
+                                            Vstupní QR kód
+                                        </button>
+                                    }
 
                                     <!-- Tlačítko pro zrušení -->
                                     <form method="post" asp-action="Cancel" class="d-inline">

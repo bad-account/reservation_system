@@ -30,6 +30,14 @@
                             <li class="nav-item">
                                 <a class="nav-link text-dark" asp-controller="Reservation" asp-action="MyReservations">Moje rezervace</a>
                             </li>
+                            @if (User.IsInRole("Admin"))
+                            {
+                                <li class="nav-item">
+                                    <a class="nav-link text-danger fw-bold" asp-controller="Reservation" asp-action="PendingApprovals">
+                                        Schvalování žádostí
+                                    </a>
+                                </li>
+                            }
                         }
                     </ul>
 
@@ -40,6 +48,10 @@
                             <li class="nav-item me-3">
                                 <span class="navbar-text fw-semibold text-dark">
                                     👤 @User.Identity.Name
+                                    @if (User.IsInRole("Admin"))
+                                    {
+                                        <span class="badge bg-warning text-dark ms-1">Admin</span>
+                                    }
                                 </span>
                             </li>
                             <li class="nav-item">

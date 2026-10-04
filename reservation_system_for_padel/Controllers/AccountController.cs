@@ -42,7 +42,7 @@ public class AccountController : Controller
         if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
             return Redirect(returnUrl);
 
-        return RedirectToAction("Index", "Reservation");
+        return RedirectToAction("Index", "Home");
     }
 
     [HttpGet]
@@ -80,7 +80,7 @@ public class AccountController : Controller
     public async Task<IActionResult> Logout()
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        return RedirectToAction("Index", "Reservation");
+        return RedirectToAction("Index", "Home");
     }
 
     public IActionResult AccessDenied()
