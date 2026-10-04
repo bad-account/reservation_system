@@ -6,9 +6,11 @@ flowchart LR
         UC2[Create Reservation]
         UC3[Confirm Reservation]
         UC4[Cancel Reservation]
+        UC5[Approve / Reject Reservation]
     end
 
     User[User]
+    Admin[Admin]
     NotificationService[Notification Service]
     QRCodeGenerator[Access QR Code Generator]
 
@@ -17,9 +19,13 @@ flowchart LR
     User --> UC3
     User --> UC4
 
+    Admin --> UC5
+
     UC3 --> NotificationService
     UC3 --> QRCodeGenerator
     UC4 --> NotificationService
+    UC5 --> NotificationService
+    UC5 --> QRCodeGenerator
 ```
 
 # Reservation state diagram
@@ -29,7 +35,13 @@ stateDiagram-v2
     [*] --> DRAFT : createDraft [slot available & user active limit < 2]
 
     DRAFT --> CONFIRMED : confirmDraft [within 5 min TTL]
+    DRAFT --> PENDING_APPROVAL : confirmDraft [within 5 min TTL & Court 4]
     DRAFT --> REJECTED : cancelDraft / timeout [TTL > 5 min]
+
+    PENDING_APPROVAL --> CONFIRMED : approveReservation [by Admin]
+    PENDING_APPROVAL --> REJECTED : rejectReservation [by Admin]
+    PENDING_APPROVAL --> CANCELED : cancelReservation [by User]
+    PENDING_APPROVAL --> EXPIRED : autoExpire [unapproved < 24h before game]
 
     CONFIRMED --> CANCELED : cancelReservation [by user]
     CONFIRMED --> EXPIRED : timePassed [Date & TimeSlot end passed]
