@@ -156,6 +156,37 @@ A player cancels their active reservation for tomorrow → the state changes to 
 Player A sends a request to cancel Player B's reservation → rejected with a permission error.
 An Admin cancels Player B's reservation → successfully cancelled.
 
+## OP-05 — Approve / Reject Reservation
+
+**Goal / user value:**  
+Správce sportoviště může posoudit žádost o rezervaci prémiového kurtu a rozhodnout o jejím závazném potvrzení nebo zamítnutí.
+
+**Trigger:**  
+Oprávněný administrátor odešle požadavek na schválení či zamítnutí rezervace ve stavu `PENDING_APPROVAL`.
+
+**Observable requirement:**  
+- **REQ-06:** Systém umožní přepnout rezervaci ze stavu `PENDING_APPROVAL` do stavu `CONFIRMED` (při schválení) nebo `REJECTED` (při zamítnutí) pouze přihlášenému uživateli s rolí `Admin`.
+- **REQ-06b:** Při přechodu do `CONFIRMED` systém vygeneruje vstupní QR kód a odešle schvalovací e-mail. Při přechodu do `REJECTED` odešle storno notifikaci a termín okamžitě uvolní.
+
+**Preconditions:**
+- Uživatel má roli `Admin`.
+- Rezervace existuje a je ve stavu `PENDING_APPROVAL`.
+
+**Success postcondition:**
+- `Reservation.State = CONFIRMED` NEBO `Reservation.State = REJECTED`.
+- V případě `CONFIRMED` vzniká přístupový QR kód a blokace slotu trvá.
+- V případě `REJECTED` slot přestává blokovat dostupnost pro ostatní.
+- Odeslán e-mail žadateli.
+
+**State change:**  
+`PENDING_APPROVAL → CONFIRMED`  
+`PENDING_APPROVAL → REJECTED`
+
+**Verification examples:**
+- Admin schválí `PENDING_APPROVAL` rezervaci na Kurt 1 → stav je `CONFIRMED`, odeslán e-mail s QR kódem.
+- Běžný hráč pošle požadavek na schválení → `403 Forbidden`.
+- Admin zamítne rezervaci → stav `REJECTED`, kurt se v matici okamžitě zobrazí jako volný.
+
 ## BR-01 — Interval semantics
 
 Time slots are fixed blocks with a duration of 60 minutes between 08:00 and 22:00. They use half-open intervals `[StartTime, EndTime)`. The end of the previous slot corresponds to the beginning of the next slot (e.g. `[08:00, 09:00)` and `[09:00, 10:00)` do not overlap).
@@ -182,12 +213,41 @@ A preliminary reservation in the DRAFT state protects the selected slot for a ma
 
 ## Dopad změny C02
 
-Změněná podmínka:
-Dotčené požadavky / části specifikace:
+**Změněná podmínka:**  
+Rezervace na vybrané kurtové kapacity (Kurt č. 4 – turnajový kurt) podléhají manuálnímu schválení správcem areálu předtím, než se stanou závazně potvrzenými.
+
+**Dotčené požadavky / části specifikace:**
+- `OP-02 Check Availability`: Rozšířeno pravidlo blokování – slot je blokován i stavem `PENDING_APPROVAL`.
+- `OP-03 Confirm Reservation`: Pokud rezervace náleží ke Kurtu č. 4, po potvrzení z draftu nepřechází do `CONFIRMED`, nýbrž do `PENDING_APPROVAL`.
+- `OP-04 Cancel Reservation`: Umožněno zrušení i pro stav `PENDING_APPROVAL`.
+- Vzniká nová operace `OP-05 Approve / Reject Reservation`.
+
 Nedotčené požadavky / části + proč:
+- `OP-01 Create Reservation`: Zůstává beze změny, vytváří dočasný 5minutový `DRAFT` bez ohledu na typ kurtu.
+- Běžné kurty (Kurt č. 1, 2 a 3) si zachovávají přímé potvrzení do `CONFIRMED`.
+
 Nový aktér / operace, pokud vznikne:
+- `Správce areálu / Administrátor (Admin)` – osoba s oprávněním posuzovat a rozhodovat o žádostech ve stavu `PENDING_APPROVAL`.
+- `OP-05 Approve / Reject Reservation` – operace umožňující správci převést rezervaci ze stavu `PENDING_APPROVAL` do `CONFIRMED` (schválení) nebo `REJECTED` (zamítnutí).
+
 Změněná pravidla / význam stavů:
-Změna diagramu případů užití:
+- `PENDING_APPROVAL`: Nový přechodový stav. Vyjadřuje, že hráč potvrdil svůj draft na Kurt č. 4 a čeká na rozhodnutí správce. Podle pravidla BR-02 termín exkluzivně blokuje a započítává se do limitu 2 aktivních rezervací hráče (BR-04).
+- `REJECTED`: Nový koncový stav. Nastává při zamítnutí správcem. Kurt se okamžitě uvolní pro ostatní a hráči se vrátí kapacita do limitu 2 rezervací.
+- Úprava BR-02 (Exclusive Resource invariant): Pro daný kurt, datum a slot nesmí v platném stavu systému existovat více než jedna rezervace ve stavu `CONFIRMED` nebo `PENDING_APPROVAL`.
+
+Změna diagramu případů užití: 
+- Do diagramu přibývá primární aktér `Správce / Administrátor`.
+- Přibývá nový use case `OP-05: Schválit / zamítnout rezervaci`, na který je napojen výhradně Správce.
+- Případ užití `OP-04: Zrušit rezervaci` je nyní dostupný jak pro `Hráče`, tak pro `Správce`.
+
 Změna stavového diagramu:
+- Z uzlu `DRAFT` se větví přechod při potvrzení hráčem: Běžné kurty (1, 2, 3) $\rightarrow$ CONFIRMED, turnajový kurt (4) $\rightarrow$ PENDING_APPROVAL.
+- Ze stavu `PENDING_APPROVAL` nově vedou 3 možné přechody: $\rightarrow$ `CONFIRMED` (přes `OP-05 Approve`), $\rightarrow$ `REJECTED` (přes `OP-05 Reject`), $\rightarrow$ `CANCELED` (přes `OP-04 Cancel` hráčem nebo správcem)
+
 Nové příklady ověření:
+- Uživatel potvrdí draft na Kurt č. 4, rezervace přejde do stavu `PENDING_APPROVAL`. Admin provede schválení, stav se změní na `CONFIRMED`, vygeneruje se QR kód a odejde potvrzovací e-mail.
+- Kurt č. 4 je ve stavu `PENDING_APPROVAL` na termín 16:00–17:00, pro všechny ostatní uživatele se slot zobrazuje jako obsazený a nelze na něj kliknout.
+- Admin zamítne rezervaci na Kurt č. 4, stav přejde do `REJECTED`, slot se v kalendáři okamžitě uvolní a zezelená pro ostatní hráče.
+
 Architektonické drivery pro C03:
+- Rezervace ve stavu `PENDING_APPROVAL` nesmí blokovat kurt donekonečna. Pokud správce nerozhodne včas (např. do 24 h před začátkem hry), systém potřebuje naplánovanou úlohu, která rezervaci expurkuje do stavu `EXPIRED` a uvolní kurt.
