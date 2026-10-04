@@ -175,3 +175,19 @@ A single user may have at most 2 active future reservations in the system at any
 ## BR-05 — Draft TTL policy
 
 A preliminary reservation in the DRAFT state protects the selected slot for a maximum of 5 minutes (300 seconds) from its creation (`CreatedAt`). If the user does not submit a confirmation within this period, the DRAFT is automatically removed and the slot is released back to the available pool.
+
+
+
+
+
+## Dopad změny C02
+
+Změněná podmínka:
+Dotčené požadavky / části specifikace:
+Nedotčené požadavky / části + proč:
+Nový aktér / operace, pokud vznikne:
+Změněná pravidla / význam stavů:
+Změna diagramu případů užití:
+Změna stavového diagramu:
+Nové příklady ověření:
+Architektonické drivery pro C03:
