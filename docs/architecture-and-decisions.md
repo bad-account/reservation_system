@@ -56,4 +56,34 @@
 | 'QRCodeGenerator' and 'PngByteQRCode' | QR-code generation library | Generate the PNG representation of the access QR code after approval. | ReservationController.cs, lines 353–357. |
 | 'AccountController.SignInUser()' | Authentication setup | Adds the user's role to the claims used by role-based authorization. | AccountController.cs, lines 91–110. |
 
+## A5. State, state change and business rule
+
+### State
+| Question | Answer | Evidence |
+| -------- | ------- | -------- | 
+| Where is reservation state represented? | In 'Reservation.State', which uses the 'ReservationState' enum. The enum includes Draft, PendingApproval, Confirmed, Rejected, Canceled, and Expired. | Reservation.cs, lines 3–10 and 27–28.
+| Where is reservation state persisted? | The reservation is tracked through 'AppDbContext.Reservations'. The approval action calls 'SaveChangesAsync()' after changing the state, persisting the update through Entity Framework Core. The database provider and connection configuration were not included in the supplied files. | AppDbContext.cs, lines 6–13; ReservationController.cs, lines 350–351. |
+| Which code decides and executes the state transition? | 'ReservationController.Approve()' verifies that the current state is PendingApproval, then assigns 'ReservationState.Confirmed' and saves the change. | ReservationController.cs, lines 344–351. |
+
+### Business rule / invariant — BR-02
+| Question | Answer | Evidence |
+| -------- | ------- | -------- | 
+|¨Where is the condition for the rule checked? | 'CreateDraft()' checks whether the same court, date, and time slot already has a Confirmed or PendingApproval reservation. It rejects a new draft if either state already occupies the slot. | ReservationController.cs, lines 137–147.
+| Where is the outcome decided? | 'CreateDraft()' returns a JSON failure when it finds an existing blocking reservation. The calendar also loads reservations other than Canceled and Rejected, so pending requests remain visible as occupied. | ReservationController.cs, lines 76–82 and 137–147; Index.cshtml, lines 153–205. |
+| Where is the resulting state change performed? | 'Approve()' changes the reservation from PendingApproval to Confirmed and persists it. |ReservationController.cs, lines 344–351. |
+| Is the invariant fully guaranteed under concurrent requests? | The supplied code does not prove that it is. The conflict check occurs in application code, and 'AppDbContext' defines a non-unique index on (CourtId, Date, TimeSlotId). The approval action does not repeat a conflict check, and no transaction/concurrency protection or unique database constraint is shown in the supplied files. | ReservationController.cs, lines 137–147 and 338–351; AppDbContext.cs, lines 19–22. |
+
+## A6. Relevant dependencies
+
+| Dependency | Where it connects to the application | Which component knows its technical API | Evidence |
+| -------- | ------- | -------- | -------- | 
+| Database / persistence | 'ReservationController' uses 'AppDbContext' to query and update reservations. | AppDbContext uses Entity Framework Core; the actual provider and database configuration are not included in the supplied files. | AppDbContext.cs, lines 1–22; ReservationController.cs, lines 338–351. |
+| QR-code generation | The approval action creates QR-code PNG bytes after the state change. | 'ReservationController.Approve()' directly uses the QRCoder API. | ReservationController.cs, lines 353–357. |
+| Email / notification service | The controller sends the recipient, subject, HTML body, and optional QR-code bytes to _emailSender. | IEmailSender defines the abstraction; EmailSender uses MailKit and MimeKit to compose and send the email through the configured SMTP server.| IEmailSender.cs, lines 3–6; EmailSender.cs, lines 19–60. |
+| Authentication and role authorization | The controller action requires the Admin role. | 'AccountController.SignInUser()' creates claims, including 'ClaimTypes.Role'; ASP.NET Core authorization evaluates the role requirement. | AccountController.cs, lines 91–110; ReservationController.cs, lines 332–336. | 
+
+- The supplied files do not include the application's dependency-injection and authentication configuration, so the registration of these services and the exact database provider could not be independently verified.
+
+
+
 
