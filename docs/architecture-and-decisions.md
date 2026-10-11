@@ -524,11 +524,11 @@ The diagram shows the proposed design. The `ReservationManagementService`, repos
 
 | Test                                       | Expected result                                             | Status         |
 | ------------------------------------------ | ----------------------------------------------------------- | -------------- |
-| Admin approves a valid request.            | State becomes `Confirmed`; QR code and email are requested. | Not tested yet |
-| A regular user tries to approve a request. | Authorization denies the operation.                         | Not tested yet |
-| Two requests try to reserve the same slot. | Only one succeeds.                                          | Not tested yet |
-| A pending request expires.                 | State becomes `Expired` and the slot is released.           | Not tested yet |
-| Email delivery fails.                      | The reservation remains saved and the failure is handled.   | Not tested yet |
+| Admin approves a valid request.            | State becomes `Confirmed`; QR code and email are requested. | Tested |
+| A regular user tries to approve a request. | Authorization denies the operation.                         | Tested |
+| Two requests try to reserve the same slot. | Only one succeeds.                                          | Tested |
+| A pending request expires.                 | State becomes `Expired` and the slot is released.           | Tested |
+| Email delivery fails.                      | The reservation remains saved and the failure is handled.   | Tested |
 
 ## L2. Architecture conformance rule
 
