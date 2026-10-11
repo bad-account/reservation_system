@@ -25,7 +25,13 @@ namespace reservation_system_for_padel
                 });
 
             builder.Services.AddControllersWithViews();
+
+            // Služby podle TO-BE architektury (C03)
             builder.Services.AddScoped<IEmailSender, EmailSender>();
+            builder.Services.AddScoped<IQRCodeService, QRCodeService>();
+            builder.Services.AddScoped<IReservationManagementService, ReservationManagementService>();
+            builder.Services.AddScoped<IReservationRepository, ReservationRepository>();
+            builder.Services.AddHostedService<ReservationExpirationWorker>();
 
             var app = builder.Build();
 
@@ -34,20 +40,22 @@ namespace reservation_system_for_padel
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 db.Database.Migrate();
 
-                // Odstranìní starého unikátního indexu, pokud v SQLite ještì existuje
-                db.Database.ExecuteSqlRaw("DROP INDEX IF EXISTS IX_Reservations_CourtId_Date_TimeSlotId;");
+                // Vytvoøení SQLite parciálního unikátního indexu pro ADR-01 (Alternative A), pokud ještì neexistuje
+                db.Database.ExecuteSqlRaw(@"
+                    CREATE UNIQUE INDEX IF NOT EXISTS IX_Reservations_ExclusiveActiveSlot 
+                    ON Reservations(CourtId, Date, TimeSlotId) 
+                    WHERE State IN (1, 2);
+                ");
 
-                // Pojistka pro již existující databázi: zajištìní existence Kurtu è. 4
+                // Pojistky pro existující data
                 if (!db.Courts.Any(c => c.Number == 4))
                 {
                     db.Courts.Add(new Court { Number = 4, IsActive = true });
                     db.SaveChanges();
                 }
 
-                // Pojistka pro již existující databázi: zajištìní existence úètu Admin
                 var adminEmail = "admin@padel.cz";
                 var adminUser = db.Users.FirstOrDefault(u => u.Email == adminEmail);
-
                 if (adminUser == null)
                 {
                     db.Users.Add(new User

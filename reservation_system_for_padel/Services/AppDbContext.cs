@@ -16,9 +16,11 @@ namespace reservation_system_for_padel.Services
         {
             base.OnModelCreating(modelBuilder);
 
-            // Neunikátní index pro rychlé dotazování na obsazenost
+            // ADR-01 (Alternative A): Filtered unique index chránící invariant BR-02 před souběhem (State: 1 = PendingApproval, 2 = Confirmed)
             modelBuilder.Entity<Reservation>()
-                .HasIndex(r => new { r.CourtId, r.Date, r.TimeSlotId });
+                .HasIndex(r => new { r.CourtId, r.Date, r.TimeSlotId })
+                .HasFilter("State IN (1, 2)")
+                .IsUnique();
 
             // Seed kurtů (včetně prémiového Kurtu č. 4)
             modelBuilder.Entity<Court>().HasData(
