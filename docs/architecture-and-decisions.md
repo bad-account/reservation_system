@@ -520,5 +520,22 @@ The diagram shows the proposed design. The `ReservationManagementService`, repos
 | Pending reservation expiry | No independent scheduled worker was identified. | Background worker processes expired requests.   | CHANGE        |
 | QR generation              | Controller calls QRCoder directly.              | Separate QR Code Service.                       | CHANGE        |
 
+## L1. Behaviour verification
+
+| Test                                       | Expected result                                             | Status         |
+| ------------------------------------------ | ----------------------------------------------------------- | -------------- |
+| Admin approves a valid request.            | State becomes `Confirmed`; QR code and email are requested. | Not tested yet |
+| A regular user tries to approve a request. | Authorization denies the operation.                         | Not tested yet |
+| Two requests try to reserve the same slot. | Only one succeeds.                                          | Not tested yet |
+| A pending request expires.                 | State becomes `Expired` and the slot is released.           | Not tested yet |
+| Email delivery fails.                      | The reservation remains saved and the failure is handled.   | Not tested yet |
+
+## L2. Architecture conformance rule
+
+**Rule:** Only `ReservationManagementService` may change the lifecycle state of an existing reservation.
+
+**Check:** Create an automated source-code or architecture test that checks that controllers and background workers do not directly change reservation states.
+
+**Result:** Not yet verified. The current controller directly changes states, so the implementation must be refactored before this rule can pass.
 
 
