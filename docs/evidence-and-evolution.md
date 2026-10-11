@@ -49,12 +49,11 @@ Commit / application tag:
 
 ### C03 — Architecture Evidence
 
-**Baseline:** v0.3 (C03)
+**Baseline:** v0.3
 
-**Part A:** Traced OP-05 — Approve / Reject Reservation. The current controller checks authorization and state, saves changes, generates QR codes and requests email delivery.
+**Part A:** OP-05 — Approve / Reject Reservation. The current controller checks authorization and reservation state, saves changes, generates a QR code and requests email delivery.
 
 **Drivers:**
-
 - AD-01: Prevent double-booking.
 - AD-02: Expire pending approvals automatically.
 - AD-03: Handle email and QR failures.
@@ -62,16 +61,33 @@ Commit / application tag:
 
 **Decision question:** How can the system guarantee that two active reservations never occupy the same court and time slot?
 
-**Alternatives:** Database constraint or application-level transaction.
+**Alternatives:**
+- Alternative A: Database constraint for blocking reservations.
+- Alternative B: Application-level transaction through a central service.
 
-**Decision:** Prefer a database constraint, subject to provider verification.
+**Scenario walkthrough:** An administrator approves a reservation while another user tries to reserve the same slot. The database constraint in Alternative A should allow only one blocking reservation to succeed.
 
-**Views:** Domain model, context diagram, static architecture, state ownership, runtime mapping, sequence diagram and class diagram.
+**ADR:** ADR-01 recommends a database constraint, subject to verification that the configured database provider supports the required constraint.
 
-**AS-IS → TO-BE:** Add the constraint, centralize state changes, separate persistence and QR generation, and add background expiry handling.
+**Views:**
+- **Domain class:** Court, TimeSlot, User, UserRole, Reservation and ReservationState.
+- **Context:** Player and Administrator interact with the Reservation System, which uses a database and SMTP email server.
+- **Static architecture:** Reservation Controller, Reservation Management Service, Reservation Repository, Database, QR Code Service and Notification Service.
+- **State ownership:** Reservation Management Service owns lifecycle decisions; the player, administrator or background worker can request transitions.
+- **Runtime/deployment:** ASP.NET Core application with database and SMTP dependencies; a background worker is proposed for pending-reservation expiry.
+- **Design sequence:** Administrator approval flow, including persistence, QR generation and notification.
+- **Focused design class:** ReservationController, ReservationManagementService, IReservationRepository, Reservation, QRCodeService and NotificationService.
 
-**Implementation and verification:** Not completed or verified in this review. Record the actual test results and commit/tag after implementation.
+**Cross-view issues found/resolved:** The views consistently assign lifecycle decisions to the proposed Reservation Management Service and BR-02 enforcement to the database. Database-provider support and the exact constraint/migration remain to be verified.
 
-**Remaining risk:** Database provider support and concurrent reservation behaviour still need to be checked.
+**AS-IS → TO-BE delta:** Replace application-only double-booking checks with database enforcement; centralize lifecycle transitions; separate repository, QR and notification responsibilities; add a background worker for expiry.
 
-**Commit / application tag:** tag C03
+**Implementation changes:** These are proposed changes, not verified as implemented. Check the database provider and existing duplicates, add the constraint/migration, refactor lifecycle changes into the service, add supporting components and run tests.
+
+**Behaviour verification:** Behaviour was tested
+
+**Architecture conformance rule + result:** Rule — only `ReservationManagementService` may change an existing reservation's lifecycle state. Result — not yet verified; the current controller directly changes states, so refactoring and an automated conformance check are needed.
+
+**Remaining uncertainty / risk:** Database-provider support, existing duplicate reservations, concurrency behaviour, background expiry and email/QR failure handling still need verification.
+
+**Commit/tag:** tag C03
