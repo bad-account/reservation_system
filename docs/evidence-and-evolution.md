@@ -46,3 +46,32 @@ Architectural drivers carried over to C03:
   
 Commit / application tag:
 - tag C02
+
+### C03 — Architecture Evidence
+
+**Baseline:** v0.3 (C03)
+
+**Part A:** Traced OP-05 — Approve / Reject Reservation. The current controller checks authorization and state, saves changes, generates QR codes and requests email delivery.
+
+**Drivers:**
+
+- AD-01: Prevent double-booking.
+- AD-02: Expire pending approvals automatically.
+- AD-03: Handle email and QR failures.
+- AD-04: Protect valid reservation state transitions.
+
+**Decision question:** How can the system guarantee that two active reservations never occupy the same court and time slot?
+
+**Alternatives:** Database constraint or application-level transaction.
+
+**Decision:** Prefer a database constraint, subject to provider verification.
+
+**Views:** Domain model, context diagram, static architecture, state ownership, runtime mapping, sequence diagram and class diagram.
+
+**AS-IS → TO-BE:** Add the constraint, centralize state changes, separate persistence and QR generation, and add background expiry handling.
+
+**Implementation and verification:** Not completed or verified in this review. Record the actual test results and commit/tag after implementation.
+
+**Remaining risk:** Database provider support and concurrent reservation behaviour still need to be checked.
+
+**Commit / application tag:** tag C03
