@@ -249,3 +249,139 @@ Where and through what mechanism should the authoritative confirmation decision 
 - **Feasible solution variants:**
   - *Variant 1 (Database Constraint / Filtered Unique Index):* Enforce exclusivity directly at the database engine level using a partial/filtered unique index on `(CourtId, Date, TimeSlotId)` for active blocking states (`Confirmed`, `PendingApproval`), relying on DB engine atomicity and handling unique constraint violation exceptions in code.
   - *Variant 2 (Application-Level Transactional Authority / Domain Coordinator):* Introduce a centralized domain service executing within a serializable database transaction or critical section to evaluate conflicts and commit transitions atomically before persistence.
+ 
+## E1. Two architectural alternatives
+- Decision question: How can we prevent two users from reserving the same court, date and time slot?
+ 
+### Alternative A — Database constraint
+The database prevents duplicate active reservations. The application handles the result and shows an error if the slot is already taken.
+
+```mermaid
+flowchart TD
+    User[User or Admin] --> App[Reservation Application]
+    App --> DB[(Database)]
+    DB --> Rule[Unique constraint]
+    Rule --> Result[Success or conflict]
+```
+
+### Alternative B — Application service
+A central service checks the slot and changes the reservation state inside a protected database transaction.
+
+```mermaid
+flowchart TD
+    User[User or Admin] --> App[Reservation Application]
+    App --> Service[Reservation Management Service]
+    Service --> Tx[Database transaction]
+    Tx --> Check[Check slot availability]
+    Check --> Result[Confirm or reject]
+```
+## E2. Comparison of alternatives
+
+| Criterion                 | Alternative A                                                                | Alternative B                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Preventing double-booking | The database rejects duplicate active reservations.                          | The transaction must safely coordinate concurrent requests.                   |
+| Error handling            | The application catches a constraint violation and shows a conflict message. | The application handles transaction conflicts or failures.                    |
+| Code complexity           | Simple enforcement at the database level.                                    | More transaction and concurrency logic is needed.                             |
+| Main limitation           | Depends on database support for the required constraint.                     | Depends on correct transaction handling and all operations using the service. |
+
+**Decision:** Alternative A is preferred because the database provides a final protection against double-booking. The database provider must be checked before implementing the constraint.
+
+## E3. Scenario walkthrough
+
+Scenario: An administrator approves a reservation while another user tries to reserve the same slot.
+
+| Step                                            | Alternative A                                      | Alternative B                                                                |
+| ----------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Admin approves a reservation.                   | The application tries to save the state change.    | The service starts a protected transaction.                                  |
+| Another request tries to reserve the same slot. | The database allows only one blocking reservation. | The transaction prevents conflicting changes from both succeeding.           |
+| A conflict occurs.                              | The database rejects the conflicting change.       | The transaction reports a conflict or must be retried.                       |
+| Final result                                    | Only one reservation can occupy the slot.          | Only one reservation can occupy the slot if transaction handling is correct. |
+
+Both alternatives can work. Alternative A is preferred because the database itself protects the rule.
+
+## F. Architecture Decision Record
+
+### ADR-01 — Prevent double-booking
+
+**Status:** Proposed decision; implementation not yet verified.
+
+**Context:** The current application checks slot availability in code, but its database index is not unique. Concurrent requests could therefore cause conflicts.
+
+**Drivers:** BR-02, REQ-04 and AD-01 — preventing double-booking.
+
+**Alternative A:** Use a database constraint for reservations in `PendingApproval` or `Confirmed` state.
+
+**Alternative B:** Use a central service and a protected database transaction.
+
+**Decision:** Choose Alternative A, provided the configured database supports the required constraint.
+
+**Reason:** It provides an additional guarantee even if another part of the application tries to reserve the same slot.
+
+**Negative consequences:** A database conflict must be caught and converted into a user-friendly error. Existing duplicate reservations must be checked before adding the constraint.
+
+**Reconsider when:** The configured database does not support the required constraint or the implementation cannot correctly handle conflicts.
+
+## F. Architecture Decision Record
+
+### ADR-01 — Prevent double-booking
+
+**Status:** Proposed decision; implementation not yet verified.
+
+**Context:** The current application checks slot availability in code, but its database index is not unique. Concurrent requests could therefore cause conflicts.
+
+**Drivers:** BR-02, REQ-04 and AD-01 — preventing double-booking.
+
+**Alternative A:** Use a database constraint for reservations in `PendingApproval` or `Confirmed` state.
+
+**Alternative B:** Use a central service and a protected database transaction.
+
+**Decision:** Choose Alternative A, provided the configured database supports the required constraint.
+
+**Reason:** It provides an additional guarantee even if another part of the application tries to reserve the same slot.
+
+**Negative consequences:** A database conflict must be caught and converted into a user-friendly error. Existing duplicate reservations must be checked before adding the constraint.
+
+**Reconsider when:** The configured database does not support the required constraint or the implementation cannot correctly handle conflicts.
+
+## G1. System context diagram
+
+```mermaid
+flowchart LR
+    User[Player] <--> App[Reservation System]
+    Admin[Administrator] <--> App
+    App <--> DB[(Database)]
+    App --> SMTP[SMTP Email Server]
+```
+
+Players make reservations. Administrators approve or reject requests. The application stores reservation data in the database and sends emails through the SMTP server.
+
+## G2. TO-BE static architecture
+
+```mermaid
+flowchart TD
+    Web[Reservation Controller]
+    Service[Reservation Management Service]
+    Repo[Reservation Repository]
+    DB[(Database)]
+    QR[QR Code Service]
+    Notify[Notification Service]
+
+    Web --> Service
+    Service --> Repo
+    Repo --> DB
+    Service --> QR
+    Service --> Notify
+    Notify --> SMTP[SMTP Server]
+```
+
+| Component                      | Responsibility                                           | Owns                             |
+| ------------------------------ | -------------------------------------------------------- | -------------------------------- |
+| Reservation Controller         | Handles HTTP requests and authorization.                 | No reservation lifecycle state.  |
+| Reservation Management Service | Validates and performs reservation state changes.        | Reservation lifecycle decisions. |
+| Reservation Repository         | Reads and saves reservation data.                        | Database access.                 |
+| Database                       | Stores reservations and prevents duplicate active slots. | Final enforcement of BR-02.      |
+| QR Code Service                | Generates QR codes for confirmed reservations.           | QR generation.                   |
+| Notification Service           | Sends emails and handles delivery failures.              | Notification delivery.           |
+
+The database constraint is the final protection against two active reservations for the same slot.
+
