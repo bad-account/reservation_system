@@ -385,3 +385,140 @@ flowchart TD
 
 The database constraint is the final protection against two active reservations for the same slot.
 
+## G3. Ownership of state transitions
+
+| Transition                     | Owner of the decision          | Who can request it? |
+| ------------------------------ | ------------------------------ | ------------------- |
+| `DRAFT → PENDING_APPROVAL`     | Reservation Management Service | Player              |
+| `PENDING_APPROVAL → CONFIRMED` | Reservation Management Service | Administrator       |
+| `PENDING_APPROVAL → REJECTED`  | Reservation Management Service | Administrator       |
+| `PENDING_APPROVAL → EXPIRED`   | Reservation Management Service | Background worker   |
+
+The controller and background worker request state changes. The Reservation Management Service decides whether they are allowed.
+
+## G4. Runtime / deployment mapping
+
+The proposed system can run in one ASP.NET Core application.
+
+```mermaid
+flowchart TD
+    App[ASP.NET Core Application]
+    subgraph Runtime
+        Controller[Reservation Controller]
+        Service[Reservation Management Service]
+        Repo[Reservation Repository]
+        Worker[Background Worker]
+        Notify[Notification Service]
+        QR[QR Code Service]
+    end
+
+    App --- Controller
+    Controller --> Service
+    Service --> Repo
+    Service --> Notify
+    Service --> QR
+    Worker --> Service
+    Repo --> DB[(Database)]
+    Notify --> SMTP[SMTP Server]
+```
+
+The database and SMTP server are separate dependencies. The background worker handles expired pending reservations. The actual database provider and deployment configuration must be verified.
+
+## H1. Design sequence diagram
+
+Scenario: An administrator approves a reservation.
+
+```mermaid
+sequenceDiagram
+    actor Admin
+    participant Controller
+    participant Service
+    participant DB as Database
+    participant QR as QR Service
+    participant Email as Notification Service
+
+    Admin->>Controller: Approve reservation
+    Controller->>Service: approve(id)
+    Service->>DB: Check state and save confirmation
+    DB-->>Service: Result
+    alt Confirmation succeeds
+        Service->>QR: Generate QR code
+        Service->>Email: Send approval email
+        Controller-->>Admin: Success
+    else Conflict or invalid state
+        Controller-->>Admin: Error message
+    end
+```
+
+The service owns the state transition. The database prevents conflicting active reservations. Notifications are sent only after a successful state change.
+
+## H2. Focused design class diagram
+
+```mermaid
+classDiagram
+    class ReservationController {
+        +Approve(id)
+        +Reject(id)
+    }
+
+    class ReservationManagementService {
+        +Approve(id)
+        +Reject(id)
+        +Confirm(id)
+        +Cancel(id)
+    }
+
+    class IReservationRepository {
+        +GetById(id)
+        +Save(reservation)
+    }
+
+    class Reservation {
+        +Id
+        +Date
+        +State
+    }
+
+    class QRCodeService {
+        +Generate(reservation)
+    }
+
+    class NotificationService {
+        +SendEmail(...)
+    }
+
+    ReservationController --> ReservationManagementService
+    ReservationManagementService --> IReservationRepository
+    IReservationRepository --> Reservation
+    ReservationManagementService --> QRCodeService
+    ReservationManagementService --> NotificationService
+```
+
+The diagram shows the proposed design. The `ReservationManagementService`, repository and QR service are design elements that must be implemented; they are not all present in the supplied code.
+
+## I. Cross-view consistency check
+
+| Check                             | Result                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| Requirements and architecture     | The design supports approval and protection against double-booking.          |
+| Responsibilities and components   | Each responsibility has a main owner.                                        |
+| Architecture and sequence diagram | The sequence uses the components shown in G2.                                |
+| State transitions                 | The Reservation Management Service owns state changes.                       |
+| Runtime mapping                   | The application, database, SMTP server and background worker are identified. |
+| ADR and architecture              | The database constraint appears in the proposed design.                      |
+
+**Still to verify:** database provider support, the exact constraint and its migration.
+
+## J. AS-IS → TO-BE changes
+
+| Area                       | AS-IS                                           | TO-BE                                           | Action        |
+| -------------------------- | ----------------------------------------------- | ----------------------------------------------- | ------------- |
+| Double-booking protection  | Application checks and a non-unique index.      | Database constraint for blocking reservations.  | CHANGE        |
+| State changes              | Controllers directly change reservation states. | One service manages state transitions.          | CHANGE        |
+| Database access            | Controllers use `AppDbContext` directly.        | Repository handles reservation persistence.     | CHANGE        |
+| Email sending              | Email interface already exists.                 | Keep the interface and define failure handling. | KEEP / VERIFY |
+| Pending reservation expiry | No independent scheduled worker was identified. | Background worker processes expired requests.   | CHANGE        |
+| QR generation              | Controller calls QRCoder directly.              | Separate QR Code Service.                       | CHANGE        |
+
+
+
