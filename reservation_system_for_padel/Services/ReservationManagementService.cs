@@ -296,7 +296,7 @@ public class ReservationManagementService : IReservationManagementService
         var pendingToEvaluate = await _repo.GetPendingReservationsAsync();
 
         var expiredPending = pendingToEvaluate
-            .Where(r => r.Date.ToDateTime(r.TimeSlot.StartTime) <= now.AddHours(24))
+            .Where(r => r.TimeSlot != null && r.Date.ToDateTime(r.TimeSlot.StartTime) <= now.AddHours(24))
             .ToList();
 
         if (expiredPending.Any())
