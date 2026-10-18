@@ -47,7 +47,7 @@ Architectural drivers carried over to C03:
 Commit / application tag:
 - tag C02
 
-### C03 — Architecture Evidence
+## C03 — Architecture Evidence
 
 **Baseline:** v0.3
 
@@ -91,3 +91,70 @@ Commit / application tag:
 **Remaining uncertainty / risk:** Database-provider support, existing duplicate reservations, concurrency behaviour, background expiry and email/QR failure handling still need verification.
 
 **Commit/tag:** tag C03
+
+
+## C05 DD Verification Evidence
+
+### 1. Tests Derived from Detailed Design
+
+| DD Element / Decision | What Must Hold? | Test Level | Test Case |
+| :--- | :--- | :--- | :--- |
+| **Algorithm branch & State transition (DR-03)** | Confirming a `Draft` on Tournament Court No. 4 must transition state to `PendingApproval`, send a notification email, and **not** generate a QR code. | Unit / Component | `ConfirmDraftAsync_Court4_TransitionsToPendingApprovalWithoutQrCode` |
+| **Collaboration & Post-transition side effects (DR-06)** | Confirming a `Draft` on Standard Courts (1–3) must transition state to `Confirmed`, invoke `IQRCodeService`, and pass the PNG bytes to `IEmailSender`. | Unit / Component | `ConfirmDraftAsync_StandardCourt1_TransitionsToConfirmedAndGeneratesQrCode` |
+| **Interface contract & BR-04 Quota Invariant (DR-02)** | `CreateDraftAsync` must reject a request when the user already holds 2 active future reservations (`Draft`, `PendingApproval`, or `Confirmed`). | Unit | `CreateDraftAsync_WhenUserAlreadyHasTwoActiveReservations_ReturnsQuotaFailure` |
+| **Temporal advance-booking rule (DR-01)** | `CreateDraftAsync` for Court No. 4 must reject slots starting in less than 24 hours with a validation message and without persisting a draft. | Unit | `CreateDraftAsync_Court4LessThan24HoursBeforeStart_ReturnsAdvanceBookingFailure` |
+| **Failure behavior & Concurrency contract (ADR-01 / BR-02)** | When `IReservationRepository.SaveChangesAsync()` throws a `DbUpdateException` due to a concurrent unique index violation, the service catches it, aborts email/QR side effects, and returns `(false, conflictMessage)`. | Unit | `ConfirmDraftAsync_WhenConcurrentDbUpdateExceptionOccurs_ReturnsGracefulFailure` |
+| **State transition OP-05 (DR-03 / DR-06)** | `ApprovePendingReservationAsync` transitions a `PendingApproval` reservation to `Confirmed`, generates the access QR code, and emails it to the user. | Unit / Component | `ApprovePendingReservationAsync_ValidPendingRequest_TransitionsToConfirmedAndSendsQr` |
+
+---
+
+### 2. Test Level Justification
+
+#### Test 1: `ConfirmDraftAsync_Court4_TransitionsToPendingApprovalWithoutQrCode`
+- **Selected level:** Unit / Component level (testing `ReservationManagementService` with in-memory test doubles for `IReservationRepository`, `IQRCodeService`, and `IEmailSender`).
+- **Why this level:** The branching decision between standard courts (`Confirmed` + QR) and Court No. 4 (`PendingApproval` without QR) is pure domain orchestration logic inside `ReservationManagementService`. Isolating it from SQLite and a live SMTP server makes the test fast, deterministic, and directly focused on state transition and side-effect rules.
+- **What design decision does this test verify?** Verifies **DR-03** and **DR-06**: Court No. 4 confirmation must never issue an entry QR code prematurely before administrator approval.
+
+#### Test 2: `ConfirmDraftAsync_WhenConcurrentDbUpdateExceptionOccurs_ReturnsGracefulFailure`
+- **Selected level:** Unit level with simulated persistence failure (`ThrowConflictOnSave = true` on `IReservationRepository`).
+- **Why this level:** Reproducing exact millisecond race conditions against a real SQLite file is non-deterministic in standard test runners. Simulating `DbUpdateException` at the `IReservationRepository` contract boundary deterministically verifies how `ReservationManagementService` handles atomic constraint violations defined in **ADR-01**.
+- **What design decision does this test verify?** Verifies the **IReservationManagementService failure contract** and **DR-06**: database concurrency exceptions must not leak as unhandled 500 HTTP crashes and must prevent false-positive confirmation emails from being sent.
+
+---
+
+### 3. Unit / Component Tests Executed
+
+- **Test project / suite:** `reservation_system_for_padel.Tests` (`ReservationManagementServiceTests.cs`)
+- **Command executed:** `dotnet test`
+- **Execution result:** 6 passed, 0 failed.
+  - `[PASS] ConfirmDraftAsync_Court4_TransitionsToPendingApprovalWithoutQrCode`
+  - `[PASS] ConfirmDraftAsync_StandardCourt1_TransitionsToConfirmedAndGeneratesQrCode`
+  - `[PASS] CreateDraftAsync_WhenUserAlreadyHasTwoActiveReservations_ReturnsQuotaFailure`
+  - `[PASS] CreateDraftAsync_Court4LessThan24HoursBeforeStart_ReturnsAdvanceBookingFailure`
+  - `[PASS] ConfirmDraftAsync_WhenConcurrentDbUpdateExceptionOccurs_ReturnsGracefulFailure`
+  - `[PASS] ApprovePendingReservationAsync_ValidPendingRequest_TransitionsToConfirmedAndSendsQr`
+
+---
+
+### 4. Design ↔ Implementation Consistency Check
+
+| DD Decision | Implemented? | Evidence | Action |
+| :--- | :--- | :--- | :--- |
+| **`IReservationManagementService` contract & tuple return types** | **YES** | `Services/IReservationManagementService.cs`, `Services/ReservationManagementService.cs` | **Keep** — matches DD contract and preconditions/postconditions. |
+| **Repository abstraction (`IReservationRepository`)** | **YES** | `Services/IReservationRepository.cs`, `Services/ReservationRepository.cs` | **Keep** — encapsulates EF Core queries and `SaveChangesAsync`. |
+| **24-hour advance booking check for Court No. 4 (DR-01)** | **YES** | `ReservationManagementService.CreateDraftAsync` + `CleanupExpiredReservationsAsync` | **Keep** — prevents immediate expiration of newly created Court 4 requests. |
+| **QR generation isolated behind `IQRCodeService` (DR-06)** | **YES** | `Services/IQRCodeService.cs`, `Services/QRCodeService.cs` | **Keep** — controller and service no longer depend on `QRCoder` directly. |
+| **Autonomous expiration via `ReservationExpirationWorker` (DR-05)** | **YES** | `Services/ReservationExpirationWorker.cs` calling `CleanupExpiredReservationsAsync` | **Keep** — runs every 60s and expires both 5m drafts and `< 24h` pending requests. |
+| **Read queries in `ReservationController` (`Index`, `PendingApprovals`, `MyReservations`)** | **PARTLY** | `Controllers/ReservationController.cs` delegates all state mutations to `IReservationManagementService`, but still reads calendar views via `AppDbContext`. | **Keep (Conscious Pragmatic Choice)** — DD scopes state-mutating lifecycle rules inside `ReservationManagementService`; simple read-only view projections in the controller do not violate state transition invariants. |
+
+---
+
+### 5. Mismatch Resolution & Remaining Design Risk
+
+- **Design ↔ Implementation Mismatch:** During initial testing of C03/C05, we discovered that allowing players to create `PendingApproval` reservations for Court No. 4 less than 24 hours before the match caused the background expiration cleanup (`CleanupExpiredReservationsAsync`) to immediately transition those requests to `Expired`.
+- **Resolution:** Updated both the Detailed Design (**DR-01**) and `ReservationManagementService.CreateDraftAsync` (via `GetCourtByIdAsync` and `GetTimeSlotByIdAsync` on `IReservationRepository`) to enforce a 24-hour advance-booking precondition for Court No. 4.
+- **Remaining Design Risk:**
+  - `IEmailSender.SendEmailAsync` is still invoked synchronously after `SaveChangesAsync()` inside the HTTP request scope. While `EmailSender` catches and logs SMTP exceptions so the reservation state remains valid, a slow SMTP server can still increase HTTP response latency. Moving email dispatch to an asynchronous background queue remains a future improvement if traffic grows.
+  - Time comparisons use server local time (`DateTime.Now` / `DateOnly.FromDateTime`), assuming the facility and server operate in the same timezone (Czechia / CET).
+
+**Commit/tag:** `tag C05`
