@@ -539,3 +539,27 @@ The diagram shows the proposed design. The `ReservationManagementService`, repos
 **Result:** Not yet verified. The current controller directly changes states, so the implementation must be refactored before this rule can pass.
 
 
+# C05 — Detailed Design
+
+## 1. Selected Architecture Unit
+
+- **Selected architecture unit / responsibility:** `ReservationManagementService` (Reservation Lifecycle & Approval Management)
+- **Related requirement(s):** REQ-01 (Create reservation draft), REQ-03 / REQ-03b (Confirm reservation & send QR code), REQ-04 (Prevent double-booking), REQ-06 / REQ-06b (Admin approval/rejection of Court No. 4)
+- **Related scenario(s):** OP-01 (Create Draft), OP-03 (Confirm Draft), OP-04 (Cancel Reservation), OP-05 (Approve / Reject Pending Reservation), Autonomous Expiration Cleanup
+- **Relevant business rule(s):** 
+  - **BR-02 (Exclusive Resource Invariant):** Only one active reservation (`Confirmed` or `PendingApproval`) per court, date, and time slot.
+  - **BR-04 (User Quota Invariant):** Maximum of 2 active future reservations (`Draft`, `PendingApproval`, `Confirmed`) per player.
+  - **BR-05 / C02 Rules:** 5-minute TTL for `Draft` state; Court No. 4 requires admin approval (`PendingApproval`) and must be requested at least 24 hours before the slot start time (otherwise it expires).
+
+## 2. Detailed Responsibilities
+
+| Detailed responsibility | Why is it needed? |
+| :--- | :--- |
+| **DR-01: Enforce temporal and advance-booking constraints** | Ensures players cannot book past dates and enforces the 24-hour advance notice rule specifically for tournament Court No. 4 before allocating a draft. |
+| **DR-02: Validate player quota (BR-04) and slot availability (BR-02)** | Prevents a single user from hoarding more than 2 active slots and checks that no conflicting `Draft`, `PendingApproval`, or `Confirmed` reservation blocks the target slot. |
+| **DR-03: Govern state machine transitions and branching** | Centralizes lifecycle rules so `ConfirmDraft` branches correctly (`Draft → Confirmed` for Courts 1–3 vs. `Draft → PendingApproval` for Court 4) and restricts `Approve`/`Reject` strictly to `PendingApproval` reservations. |
+| **DR-04: Verify actor ownership and role authorization on cancellation** | Ensures a reservation can only be canceled by its creator (`UserId` match) or an administrator (`isAdmin` flag). |
+| **DR-05: Execute autonomous time-based expiration cleanup** | Removes abandoned `Draft` records older than 5 minutes and transitions unresolved `PendingApproval` requests to `Expired` when the 24-hour deadline before match start passes. |
+| **DR-06: Coordinate post-transition side effects (QR & Email)** | Triggers QR code generation (`IQRCodeService`) only for confirmed bookings and dispatches status emails (`IEmailSender`) only after the database state change succeeds. |
+
+
