@@ -82,13 +82,13 @@ Commit / application tag:
 
 **AS-IS → TO-BE delta:** Replace application-only double-booking checks with database enforcement; centralize lifecycle transitions; separate repository, QR and notification responsibilities; add a background worker for expiry.
 
-**Implementation changes:** These are proposed changes, not verified as implemented. Check the database provider and existing duplicates, add the constraint/migration, refactor lifecycle changes into the service, add supporting components and run tests.
+**Implementation changes:** Implemented `ReservationManagementService`, `ReservationRepository`, `QRCodeService`, `ReservationExpirationWorker`, and the SQLite filtered unique index `IX_Reservations_ExclusiveActiveSlot` on `(CourtId, Date, TimeSlotId) WHERE State IN (1, 2)`. Refactored `ReservationController` to delegate all state transitions to the service.
 
-**Behaviour verification:** Behaviour was tested
+**Behaviour verification:** Verified both via running application scenarios (C02 verification examples) and automated xUnit tests (`dotnet test` — 6/6 passing).
 
-**Architecture conformance rule + result:** Rule — only `ReservationManagementService` may change an existing reservation's lifecycle state. Result — not yet verified; the current controller directly changes states, so refactoring and an automated conformance check are needed.
+**Architecture conformance rule + result:** Rule — only `ReservationManagementService` may change a reservation's lifecycle state (`Reservation.State`). Check — static search `Select-String -Path "reservation_system_for_padel/Controllers/*.cs" -Pattern "\.State\s*="`. Result — **PASS** (zero state mutations in controllers).
 
-**Remaining uncertainty / risk:** Database-provider support, existing duplicate reservations, concurrency behaviour, background expiry and email/QR failure handling still need verification.
+**Remaining uncertainty / risk:** Synchronous SMTP email dispatch inside HTTP request scope can add latency if the external mail server is slow; local server timezone (`DateTime.Now`) is assumed.
 
 **Commit/tag:** tag C03
 
