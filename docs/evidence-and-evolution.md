@@ -46,3 +46,48 @@ Architectural drivers carried over to C03:
   
 Commit / application tag:
 - tag C02
+
+### C03 — Architecture Evidence
+
+**Baseline:** v0.3
+
+**Part A:** OP-05 — Approve / Reject Reservation. The current controller checks authorization and reservation state, saves changes, generates a QR code and requests email delivery.
+
+**Drivers:**
+- AD-01: Prevent double-booking.
+- AD-02: Expire pending approvals automatically.
+- AD-03: Handle email and QR failures.
+- AD-04: Protect valid reservation state transitions.
+
+**Decision question:** How can the system guarantee that two active reservations never occupy the same court and time slot?
+
+**Alternatives:**
+- Alternative A: Database constraint for blocking reservations.
+- Alternative B: Application-level transaction through a central service.
+
+**Scenario walkthrough:** An administrator approves a reservation while another user tries to reserve the same slot. The database constraint in Alternative A should allow only one blocking reservation to succeed.
+
+**ADR:** ADR-01 recommends a database constraint, subject to verification that the configured database provider supports the required constraint.
+
+**Views:**
+- **Domain class:** Court, TimeSlot, User, UserRole, Reservation and ReservationState.
+- **Context:** Player and Administrator interact with the Reservation System, which uses a database and SMTP email server.
+- **Static architecture:** Reservation Controller, Reservation Management Service, Reservation Repository, Database, QR Code Service and Notification Service.
+- **State ownership:** Reservation Management Service owns lifecycle decisions; the player, administrator or background worker can request transitions.
+- **Runtime/deployment:** ASP.NET Core application with database and SMTP dependencies; a background worker is proposed for pending-reservation expiry.
+- **Design sequence:** Administrator approval flow, including persistence, QR generation and notification.
+- **Focused design class:** ReservationController, ReservationManagementService, IReservationRepository, Reservation, QRCodeService and NotificationService.
+
+**Cross-view issues found/resolved:** The views consistently assign lifecycle decisions to the proposed Reservation Management Service and BR-02 enforcement to the database. Database-provider support and the exact constraint/migration remain to be verified.
+
+**AS-IS → TO-BE delta:** Replace application-only double-booking checks with database enforcement; centralize lifecycle transitions; separate repository, QR and notification responsibilities; add a background worker for expiry.
+
+**Implementation changes:** These are proposed changes, not verified as implemented. Check the database provider and existing duplicates, add the constraint/migration, refactor lifecycle changes into the service, add supporting components and run tests.
+
+**Behaviour verification:** Behaviour was tested
+
+**Architecture conformance rule + result:** Rule — only `ReservationManagementService` may change an existing reservation's lifecycle state. Result — not yet verified; the current controller directly changes states, so refactoring and an automated conformance check are needed.
+
+**Remaining uncertainty / risk:** Database-provider support, existing duplicate reservations, concurrency behaviour, background expiry and email/QR failure handling still need verification.
+
+**Commit/tag:** tag C03

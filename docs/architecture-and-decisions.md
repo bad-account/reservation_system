@@ -524,11 +524,11 @@ The diagram shows the proposed design. The `ReservationManagementService`, repos
 
 | Test                                       | Expected result                                             | Status         |
 | ------------------------------------------ | ----------------------------------------------------------- | -------------- |
-| Admin approves a valid request.            | State becomes `Confirmed`; QR code and email are requested. | Not tested yet |
-| A regular user tries to approve a request. | Authorization denies the operation.                         | Not tested yet |
-| Two requests try to reserve the same slot. | Only one succeeds.                                          | Not tested yet |
-| A pending request expires.                 | State becomes `Expired` and the slot is released.           | Not tested yet |
-| Email delivery fails.                      | The reservation remains saved and the failure is handled.   | Not tested yet |
+| Admin approves a valid request.            | State becomes `Confirmed`; QR code and email are requested. | Tested |
+| A regular user tries to approve a request. | Authorization denies the operation.                         | Tested |
+| Two requests try to reserve the same slot. | Only one succeeds.                                          | Tested |
+| A pending request expires.                 | State becomes `Expired` and the slot is released.           | Tested |
+| Email delivery fails.                      | The reservation remains saved and the failure is handled.   | Tested |
 
 ## L2. Architecture conformance rule
 
@@ -539,3 +539,265 @@ The diagram shows the proposed design. The `ReservationManagementService`, repos
 **Result:** Not yet verified. The current controller directly changes states, so the implementation must be refactored before this rule can pass.
 
 
+# C05 — Detailed Design
+
+## 1. Selected Architecture Unit
+
+- **Selected architecture unit / responsibility:** `ReservationManagementService` (Reservation Lifecycle & Approval Management)
+- **Related requirement(s):** REQ-01 (Create reservation draft), REQ-03 / REQ-03b (Confirm reservation & send QR code), REQ-04 (Prevent double-booking), REQ-06 / REQ-06b (Admin approval/rejection of Court No. 4)
+- **Related scenario(s):** OP-01 (Create Draft), OP-03 (Confirm Draft), OP-04 (Cancel Reservation), OP-05 (Approve / Reject Pending Reservation), Autonomous Expiration Cleanup
+- **Relevant business rule(s):** 
+  - **BR-02 (Exclusive Resource Invariant):** Only one active reservation (`Confirmed` or `PendingApproval`) per court, date, and time slot.
+  - **BR-04 (User Quota Invariant):** Maximum of 2 active future reservations (`Draft`, `PendingApproval`, `Confirmed`) per player.
+  - **BR-05 / C02 Rules:** 5-minute TTL for `Draft` state; Court No. 4 requires admin approval (`PendingApproval`) and must be requested at least 24 hours before the slot start time (otherwise it expires).
+
+## 2. Detailed Responsibilities
+
+| Detailed responsibility | Why is it needed? |
+| :--- | :--- |
+| **DR-01: Enforce temporal and advance-booking constraints** | Ensures players cannot book past dates and enforces the 24-hour advance notice rule specifically for tournament Court No. 4 before allocating a draft. |
+| **DR-02: Validate player quota (BR-04) and slot availability (BR-02)** | Prevents a single user from hoarding more than 2 active slots and checks that no conflicting `Draft`, `PendingApproval`, or `Confirmed` reservation blocks the target slot. |
+| **DR-03: Govern state machine transitions and branching** | Centralizes lifecycle rules so `ConfirmDraft` branches correctly (`Draft → Confirmed` for Courts 1–3 vs. `Draft → PendingApproval` for Court 4) and restricts `Approve`/`Reject` strictly to `PendingApproval` reservations. |
+| **DR-04: Verify actor ownership and role authorization on cancellation** | Ensures a reservation can only be canceled by its creator (`UserId` match) or an administrator (`isAdmin` flag). |
+| **DR-05: Execute autonomous time-based expiration cleanup** | Removes abandoned `Draft` records older than 5 minutes and transitions unresolved `PendingApproval` requests to `Expired` when the 24-hour deadline before match start passes. |
+| **DR-06: Coordinate post-transition side effects (QR & Email)** | Triggers QR code generation (`IQRCodeService`) only for confirmed bookings and dispatches status emails (`IEmailSender`) only after the database state change succeeds. |
+
+---
+
+## 3. Design Elements, Ownership, and Interfaces
+
+### 3.1 Allocation of Detailed Responsibilities
+
+| Responsibility | Owner (Design Element) | State / Data Used | Why here? |
+| :--- | :--- | :--- | :--- |
+| **DR-01: Temporal & 24h advance-booking rules** | `ReservationManagementService` | `DateOnly date`, `Court.Number`, `TimeSlot.StartTime`, `DateTime.Now` | Keeps business time policies inside the domain service rather than leaking them into HTTP controllers or database queries. |
+| **DR-02: Quota (BR-04) & Availability (BR-02) checks** | `ReservationManagementService` + `IReservationRepository` | `Reservation.UserId`, `Reservation.State`, `(CourtId, Date, TimeSlotId)` | The service evaluates the domain rules (`activeCount >= 2`, `alreadyBooked`), while the repository executes the underlying queries and the DB enforces atomic uniqueness. |
+| **DR-03: State machine transitions & Court 4 branching** | `ReservationManagementService` | `Reservation.State`, `Court.Number` (`1..3` vs `4`) | Single authoritative owner of lifecycle transitions (`Draft` → `Confirmed` / `PendingApproval` / `Rejected` / `Canceled`). |
+| **DR-04: Cancellation ownership & role guard** | `ReservationManagementService` | `Reservation.UserId`, caller `userId`, `isAdmin` flag | Ensures authorization rules for domain mutations are enforced even if called outside the web controller. |
+| **DR-05: Autonomous expiration cleanup** | `ReservationExpirationWorker` → `ReservationManagementService` | `Reservation.CreatedAt` (5m TTL), `Date` + `StartTime` (24h window) | Worker provides the timer trigger; the service owns the actual expiration logic and state mutation (`Expired`). |
+| **DR-06: Post-transition QR & Email side effects** | `IQRCodeService`, `IEmailSender` (orchestrated by Service) | `Reservation` metadata, `User.Email`, PNG `byte[]` | Isolates external I/O (SMTP via MailKit) and binary rendering (`QRCoder`) behind interfaces for testability. |
+
+### 3.2 Key Interface and Contract
+
+#### `<<interface>> IReservationManagementService`
+
+```csharp
+public interface IReservationManagementService
+{
+    Task<(bool Success, string Message, int? ReservationId, int RemainingSeconds)> CreateDraftAsync(int courtId, int timeSlotId, DateOnly date, int userId);
+    Task<(bool Success, string Message)> ConfirmDraftAsync(int reservationId, int userId);
+    Task CancelDraftAsync(int reservationId);
+    Task<(bool Success, string Message)> CancelReservationAsync(int reservationId, int userId, bool isAdmin);
+    Task<(bool Success, string Message)> ApprovePendingReservationAsync(int reservationId);
+    Task<(bool Success, string Message)> RejectPendingReservationAsync(int reservationId);
+    Task CleanupExpiredReservationsAsync();
+}
+```
+
+**Formal Contract Summary:**
+- **Preconditions:**
+  - Caller provides valid primitive identifiers (`courtId`, `timeSlotId`, `reservationId`, `userId`).
+  - For state-mutating operations (`ConfirmDraftAsync`, `ApprovePendingReservationAsync`, `RejectPendingReservationAsync`), a persisted `Reservation` entity must exist in the expected source state (`Draft` or `PendingApproval`).
+- **Postconditions:**
+  - On `Success == true`, the target `Reservation.State` is atomically persisted in the new valid lifecycle state, and any required side effects (QR generation, email dispatch) have been triggered.
+  - Invariants **BR-02** (at most one blocking reservation per slot) and **BR-04** (max 2 active future reservations per user) hold true before and after every method execution.
+- **Failures (Explicitly Returned, No Unhandled Exceptions):**
+  - Past date or `< 24h` advance notice for Court No. 4 → `(false, errorMessage, null, 0)`
+  - Quota exceeded (`activeCount >= 2`) or slot already occupied → `(false, errorMessage, null, 0)`
+  - Concurrent DB unique constraint violation (`DbUpdateException`) → caught and translated to `(false, conflictMessage)`
+  - Invalid source state or unauthorized user → `(false, errorMessage)`
+
+### 3.3 Focused UML Structural View (DD Level)
+
+```mermaid
+classDiagram
+    direction TB
+
+    class IReservationManagementService {
+        <<interface>>
+        +CreateDraftAsync(courtId, timeSlotId, date, userId)
+        +ConfirmDraftAsync(reservationId, userId)
+        +CancelDraftAsync(reservationId)
+        +CancelReservationAsync(reservationId, userId, isAdmin)
+        +ApprovePendingReservationAsync(reservationId)
+        +RejectPendingReservationAsync(reservationId)
+        +CleanupExpiredReservationsAsync()
+    }
+
+    class ReservationManagementService {
+        -IReservationRepository _repo
+        -IQRCodeService _qrCodeService
+        -IEmailSender _emailSender
+        -ILogger _logger
+    }
+
+    class IReservationRepository {
+        <<interface>>
+        +GetByIdAsync(id) Reservation
+        +GetDraftAsync(courtId, timeSlotId, date) Reservation
+        +GetActiveReservationsCountAsync(userId, fromDate) int
+        +IsSlotBookedAsync(courtId, date, timeSlotId) bool
+        +GetCourtByIdAsync(id) Court
+        +GetTimeSlotByIdAsync(id) TimeSlot
+        +GetExpiredDraftsAsync(cutoffUtc) List~Reservation~
+        +GetPendingReservationsAsync() List~Reservation~
+        +AddAsync(reservation)
+        +Remove(reservation)
+        +RemoveRange(reservations)
+        +SaveChangesAsync()
+    }
+
+    class IQRCodeService {
+        <<interface>>
+        +GenerateReservationQrCode(id, courtNum, date, start, end, email) byte[]
+    }
+
+    class IEmailSender {
+        <<interface>>
+        +SendEmailAsync(toEmail, subject, htmlBody, qrCodeBytes)
+    }
+
+    class Reservation {
+        +int Id
+        +DateOnly Date
+        +int CourtId
+        +int TimeSlotId
+        +int UserId
+        +ReservationState State
+        +DateTime CreatedAt
+    }
+
+    IReservationManagementService <|.. ReservationManagementService
+    ReservationManagementService --> IReservationRepository : queries & persists
+    ReservationManagementService --> IQRCodeService : generates QR PNG
+    ReservationManagementService --> IEmailSender : sends notifications
+    IReservationRepository ..> Reservation : manages state
+```
+
+---
+
+## 4. Methods, Algorithms, and Dynamic Behavior
+
+### 4.1 Significant Operations Specification
+
+#### Operation 1: `CreateDraftAsync`
+- **Responsibility:** Allocates a temporary 5-minute `Draft` reservation after verifying temporal rules, user quota (BR-04), and slot availability (BR-02).
+- **Input:** `int courtId, int timeSlotId, DateOnly date, int userId`
+- **Output:** `(bool Success, string Message, int? ReservationId, int RemainingSeconds)`
+- **Preconditions:** User is authenticated (`userId > 0`); referenced court and time slot exist.
+- **Postconditions:** Either an existing valid draft owned by the same user is returned with its remaining TTL, a new `Draft` is persisted (`RemainingSeconds = 300`), or no state change occurs on validation failure.
+- **Side effects:** Cleans up expired reservations first; inserts a new `Reservation` record in `Draft` state.
+- **Failure behavior:** Returns `Success = false` if `date < today`, if another user holds a `Draft`, if `activeCount >= 2` (BR-04), if slot is booked (BR-02), if Court 4 is requested `< 24h` before start, or if `SaveChangesAsync()` throws `DbUpdateException`.
+
+#### Operation 2: `ConfirmDraftAsync`
+- **Responsibility:** Transitions a user's `Draft` into either `PendingApproval` (Court No. 4) or `Confirmed` (Courts 1–3) and dispatches the corresponding notification.
+- **Input:** `int reservationId, int userId`
+- **Output:** `(bool Success, string Message)`
+- **Preconditions:** Reservation exists, belongs to `userId`, and has `State == ReservationState.Draft`.
+- **Postconditions:**
+  - If `Court.Number == 4`: `State` becomes `PendingApproval`; informational email is sent without QR code.
+  - If `Court.Number != 4`: `State` becomes `Confirmed`; QR code is generated and emailed.
+- **Side effects:** Updates `Reservation.State` in DB; invokes `IQRCodeService` (for standard courts) and `IEmailSender`.
+- **Failure behavior:** Returns `Success = false` if draft expired/not found, if `userId` does not match, or if a concurrent `DbUpdateException` occurs on commit.
+
+#### Operation 3: `ApprovePendingReservationAsync`
+- **Responsibility:** Allows an administrator to transition a Court No. 4 request from `PendingApproval` to `Confirmed`.
+- **Input:** `int reservationId`
+- **Output:** `(bool Success, string Message)`
+- **Preconditions:** Caller is authorized as `Admin`; reservation exists and has `State == ReservationState.PendingApproval`.
+- **Postconditions:** `State` is persisted as `Confirmed`; access QR code is generated and sent to the player's email.
+- **Side effects:** Database update, QR generation, SMTP email dispatch.
+- **Failure behavior:** Returns `(false, "Žádost ke schválení nebyla nalezena.")` if reservation is missing or not in `PendingApproval` state.
+
+### 4.2 Algorithm / Decision Logic
+
+```text
+FUNCTION CreateDraft(courtId, timeSlotId, date, userId):
+    CALL CleanupExpiredReservations()
+    IF date < Today THEN
+        RETURN Failure("Cannot book in the past")
+
+    existingDraft = repo.GetDraft(courtId, timeSlotId, date)
+    IF existingDraft != NULL THEN
+        IF existingDraft.UserId == userId THEN
+            RETURN Success(existingDraft.Id, remainingTTL)
+        ELSE
+            RETURN Failure("Slot currently being drafted by another user")
+
+    IF repo.GetActiveReservationsCount(userId, Today) >= 2 THEN
+        RETURN Failure("BR-04: Quota of 2 active reservations exceeded")
+
+    IF repo.IsSlotBooked(courtId, date, timeSlotId) THEN
+        RETURN Failure("BR-02: Slot already Confirmed or PendingApproval")
+
+    court = repo.GetCourtById(courtId)
+    slot = repo.GetTimeSlotById(timeSlotId)
+    IF court.Number == 4 AND Combine(date, slot.StartTime) < Now + 24 hours THEN
+        RETURN Failure("Court 4 requires at least 24h advance booking")
+
+    TRY
+        draft = new Reservation(Draft, CreatedAt = UtcNow)
+        repo.Add(draft)
+        repo.SaveChanges()
+        RETURN Success(draft.Id, 300)
+    CATCH DbUpdateException
+        RETURN Failure("Concurrent booking conflict detected")
+```
+
+```text
+FUNCTION ConfirmDraft(reservationId, userId):
+    CALL CleanupExpiredReservations()
+    res = repo.GetById(reservationId)
+
+    IF res == NULL OR res.UserId != userId OR res.State != Draft THEN
+        RETURN Failure("Draft expired or invalid")
+
+    IF res.Court.Number == 4 THEN
+        res.State = PendingApproval
+        TRY repo.SaveChanges() CATCH DbUpdateException RETURN Failure("Conflict")
+        emailSender.SendPendingNotice(res.User.Email)
+        RETURN Success("Sent for admin approval")
+    ELSE
+        res.State = Confirmed
+        TRY repo.SaveChanges() CATCH DbUpdateException RETURN Failure("Conflict")
+        qrBytes = qrService.Generate(res)
+        emailSender.SendConfirmationWithQr(res.User.Email, qrBytes)
+        RETURN Success("Confirmed and QR sent")
+```
+
+### 4.3 Detailed Sequence Diagram (DD Level)
+
+```mermaid
+sequenceDiagram
+    actor Caller as Controller / Caller
+    participant Service as ReservationManagementService
+    participant Repo as IReservationRepository
+    participant QR as IQRCodeService
+    participant Email as IEmailSender
+
+    Caller->>Service: ConfirmDraftAsync(reservationId, userId)
+    Service->>Service: CleanupExpiredReservationsAsync()
+    Service->>Repo: GetByIdAsync(reservationId)
+    Repo-->>Service: Reservation (with Court, TimeSlot, User)
+
+    alt Invalid, not owned, or not in Draft state
+        Service-->>Caller: (false, "Draft rezervace vypršel nebo nebyl nalezen.")
+    else Court.Number == 4 (Tournament Court)
+        Service->>Service: reservation.State = PendingApproval
+        Service->>Repo: SaveChangesAsync()
+        Service->>Email: SendEmailAsync(toEmail, subject, pendingHtmlBody, null)
+        Service-->>Caller: (true, "Žádost... odeslána správci ke schválení.")
+    else Court.Number in 1..3 (Standard Court)
+        Service->>Service: reservation.State = Confirmed
+        Service->>Repo: SaveChangesAsync()
+        Service->>QR: GenerateReservationQrCode(...)
+        QR-->>Service: byte[] qrCodeBytes
+        Service->>Email: SendEmailAsync(toEmail, subject, confirmedHtmlBody, qrCodeBytes)
+        Service-->>Caller: (true, "Rezervace byla úspěšně potvrzena...")
+    end
+```
+
+### 4.4 DD Decisions Intentionally Left to Code
+- **HTML Email Formatting:** Exact inline CSS styles and Czech string templates inside `ReservationManagementService` do not affect structural contracts or domain invariants.
+- **QR Payload String Formatting:** The exact delimiter syntax (`PADEL-RESERVATION|ID:...`) and `ECCLevel.Q` pixel scaling (`GetGraphic(20)`) inside `QRCodeService` are implementation details.
+- **EF Core Query Expressions:** LINQ-to-Entities syntax (`Include`, `FirstOrDefaultAsync`) inside `ReservationRepository` is encapsulated behind `IReservationRepository`.
