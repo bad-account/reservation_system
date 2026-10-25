@@ -158,3 +158,15 @@ Commit / application tag:
   - Time comparisons use server local time (`DateTime.Now` / `DateOnly.FromDateTime`), assuming the facility and server operate in the same timezone (Czechia / CET).
 
 **Commit/tag:** `tag C05`
+
+---
+
+## C06 Internal Evidence Assessment
+
+- **Assessed baseline:** commit `79fbe08447df982b746ae1b394657a2fe64cc4df` (`tag C05`)
+- **Verified findings:** None received yet — the reviewing team assigned to assess our repository has not delivered their C06 assessment checklist or candidate findings by the time of submission.
+- **Owner disposition:** `DEFERRED` (Missing information: awaiting external assessment report and candidate findings from the reviewing team).
+- **Actions / justified no-change decisions:** Internal self-verification of baseline `C05` confirmed that all 6 DD-derived unit/component tests pass (`dotnet test`) and the implementation conforms to the C02–C05 artifacts. Once the reviewing team provides their findings, we will evaluate them and record the final disposition (`ACCEPTED` / `REJECTED`).
+- **Remaining evidence gaps:**
+  - External peer-review checklist and candidate findings pending delivery from the reviewing team.
+  - Synchronous SMTP email dispatch inside the HTTP request scope and local server time (`DateTime.Now`) assumptions remain documented as known minor risks from C05.
