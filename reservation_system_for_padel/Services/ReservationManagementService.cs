@@ -61,7 +61,17 @@ public class ReservationManagementService : IReservationManagementService
         var court = await _repo.GetCourtByIdAsync(courtId);
         var timeSlot = await _repo.GetTimeSlotByIdAsync(timeSlotId);
 
-        if (court != null && timeSlot != null && court.Number == 4)
+        if (court == null || !court.IsActive || timeSlot == null)
+        {
+            return (false, "Zvolený kurt nebo časový slot není aktivní.", null, 0);
+        }
+
+        if (date == today && timeSlot.StartTime <= TimeOnly.FromDateTime(DateTime.Now))
+        {
+            return (false, "Nelze rezervovat již probíhající nebo uplynulý časový slot.", null, 0);
+        }
+
+        if (court.Number == 4)
         {
             var slotDateTime = date.ToDateTime(timeSlot.StartTime);
             if (slotDateTime < DateTime.Now.AddHours(24))
@@ -195,6 +205,11 @@ public class ReservationManagementService : IReservationManagementService
         if (reservation.UserId != userId && !isAdmin)
         {
             return (false, "Nemáte oprávnění zrušit cizí rezervaci.");
+        }
+
+        if (reservation.State != ReservationState.Confirmed && reservation.State != ReservationState.PendingApproval)
+        {
+            return (false, "Rušit lze pouze potvrzenou rezervaci nebo žádost čekající na schválení.");
         }
 
         reservation.State = ReservationState.Canceled;

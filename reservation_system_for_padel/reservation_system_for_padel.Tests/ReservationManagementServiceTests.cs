@@ -252,4 +252,43 @@ public class ReservationManagementServiceTests
         Assert.Equal(1, email.SentCount);
         Assert.NotNull(email.LastQrCodeBytes);
     }
+
+    // Temporary verification test for finding F-02
+    [Fact]
+    public async Task CancelReservationAsync_DraftReservation_IsRejected()
+    {
+        // Arrange
+        var (service, repo, email, _) = CreateSut();
+
+        var draft = new Reservation
+        {
+            Id = 123,
+            UserId = 1,
+            CourtId = 1,
+            TimeSlotId = 1,
+            Date = DateOnly.FromDateTime(DateTime.Today.AddDays(1)),
+            State = ReservationState.Draft,
+            User = new User
+            {
+                Id = 1,
+                Name = "Test User",
+                Email = "test@example.com"
+            },
+            Court = repo.Courts.First(c => c.Id == 1),
+            TimeSlot = repo.TimeSlots.First(s => s.Id == 1)
+        };
+
+        repo.Reservations.Add(draft);
+
+        // Act
+        var result = await service.CancelReservationAsync(
+            reservationId: 123,
+            userId: 1,
+            isAdmin: false);
+
+        // Assert: DRAFT se nesmí zrušit přes OP-04
+        Assert.False(result.Success);
+        Assert.Equal(ReservationState.Draft, draft.State);
+        Assert.Equal(0, email.SentCount);
+    }
 }
