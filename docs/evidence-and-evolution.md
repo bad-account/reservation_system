@@ -161,12 +161,20 @@ Commit / application tag:
 
 ---
 
+---
+
 ## C06 Internal Evidence Assessment
 
-- **Assessed baseline:** commit `79fbe08447df982b746ae1b394657a2fe64cc4df` (`tag C05`)
-- **Verified findings:** None received yet — the reviewing team assigned to assess our repository has not delivered their C06 assessment checklist or candidate findings by the time of submission.
-- **Owner disposition:** `DEFERRED` (Missing information: awaiting external assessment report and candidate findings from the reviewing team).
-- **Actions / justified no-change decisions:** Internal self-verification of baseline `C05` confirmed that all 6 DD-derived unit/component tests pass (`dotnet test`) and the implementation conforms to the C02–C05 artifacts. Once the reviewing team provides their findings, we will evaluate them and record the final disposition (`ACCEPTED` / `REJECTED`).
+- **Assessed baseline:** `tag C05` (commit `79fbe08` / `b492019`), assessed by reviewing team *Daniel Kodrla a spol.*
+- **Verified findings:**
+  - **F1 (C02 — OP-01 Preconditions in `CreateDraftAsync`):** `ReservationManagementService.CreateDraftAsync` checked `date < today`, but did not verify `court.IsActive == true` or reject time slots on the current day whose `StartTime` had already passed when called via direct HTTP POST.
+  - **F2 (C02 — OP-04 State Precondition in `CancelReservationAsync`):** `ReservationManagementService.CancelReservationAsync` verified ownership and admin role, but did not enforce that the reservation is in an active cancellable state (`Confirmed` or `PendingApproval`), allowing a `Draft` reservation to transition to `Canceled` instead of using `CancelDraftAsync`.
+- **Owner disposition:**
+  - **F1:** `ACCEPTED — change required`
+  - **F2:** `ACCEPTED — change required` (with clarification that under the C02/v0.2 baseline change, both `Confirmed` and `PendingApproval` are valid states for `OP-04 Cancel`, whereas `Draft` must be rejected by `CancelReservationAsync`).
+- **Actions / justified no-change decisions:**
+  - Updated `ReservationManagementService.CreateDraftAsync` to explicitly reject inactive courts (`!court.IsActive`) and today's time slots where `timeSlot.StartTime <= currentTime`.
+  - Updated `ReservationManagementService.CancelReservationAsync` to guard state transitions so only `Confirmed` and `PendingApproval` reservations can be cancelled; kept the reviewing team's verification test `CancelReservationAsync_DraftReservation_IsRejected` in `ReservationManagementServiceTests.cs` (all 7/7 unit tests now pass).
 - **Remaining evidence gaps:**
-  - External peer-review checklist and candidate findings pending delivery from the reviewing team.
-  - Synchronous SMTP email dispatch inside the HTTP request scope and local server time (`DateTime.Now`) assumptions remain documented as known minor risks from C05.
+  - Align `<TargetFramework>` in `reservation_system_for_padel.Tests.csproj` with the main project (`net8.0`) so `dotnet test` runs on .NET 8 SDK without requiring .NET 9 runtime.
+  - Update the status label of `ADR-01` in `docs/architecture-and-decisions.md` from `Proposed` to `Accepted & Verified` and explicitly mention `PENDING_APPROVAL` directly inside the `BR-02` paragraph of `docs/c02-specification.md`.
