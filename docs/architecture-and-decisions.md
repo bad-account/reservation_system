@@ -303,7 +303,7 @@ Both alternatives can work. Alternative A is preferred because the database itse
 
 ### ADR-01 — Prevent double-booking
 
-**Status:** Proposed decision; implementation not yet verified.
+**Status:** Accepted & Verified.
 
 **Context:** The current application checks slot availability in code, but its database index is not unique. Concurrent requests could therefore cause conflicts.
 
