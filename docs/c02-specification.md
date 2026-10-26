@@ -193,7 +193,7 @@ Time slots are fixed blocks with a duration of 60 minutes between 08:00 and 22:0
 
 ## BR-02 — Exclusive Resource invariant
 
-A single court (`CourtId`) may have at most one reservation in the CONFIRMED state for a given day (`Date`) and time slot (`TimeSlotId`). Cancelled (`CANCELED`) and rejected (`REJECTED`) reservations do not block availability.
+A single court (`CourtId`) may have at most one reservation in the CONFIRMED or PENDING_APPROVAL state for a given day (`Date`) and time slot (`TimeSlotId`). Cancelled (`CANCELED`) and rejected (`REJECTED`) reservations do not block availability.
 
 ## BR-03 — Cancellation policy
 
