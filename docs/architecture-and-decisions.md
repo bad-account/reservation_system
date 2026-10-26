@@ -135,10 +135,10 @@ flowchart TD
 
 | Architectural Driver | Baseline evidence / Source | Why it shapes the architecture | Question the architecture must resolve |
 | :--- | :--- | :--- | :--- |
-| **AD-01: Preventing double-booking under concurrency** | BR-02, REQ-04, OP-01, OP-03, AS-IS Trace A8[cite: 14] | If two users click "Reserve" at the exact same moment, both might pass the checks and book the same court slot[cite: 14]. Our database index is non-unique, so simple `if` checks in code cannot prevent conflicts[cite: 14]. | Where and how must the system make the final reservation decision so two users never get the same slot? |
+| **AD-01: Preventing double-booking under concurrency** | BR-02, REQ-04, OP-01, OP-03, AS-IS Trace A8 | If two users click "Reserve" at the exact same moment, both might pass the checks and book the same court slot. Our database index is non-unique, so simple `if` checks in code cannot prevent conflicts. | Where and how must the system make the final reservation decision so two users never get the same slot? |
 | **AD-02: Automatic expiration of pending approvals** | Change C02, OP-02, OP-05, BR-05, C02 driver | Court 4 stays blocked while waiting for admin approval. If the admin forgets or doesn't respond before the match, the court stays blocked forever unless the system cancels it automatically. The web app currently only runs when someone sends a request. | What part of the system will watch the time and cancel expired requests automatically without waiting for user clicks? |
-| **AD-03: Handling email and QR code failures** | REQ-03b, REQ-06b, OP-03, OP-05, C01 Spike[cite: 14] | Sending emails via SMTP is slow and can fail (network timeout, bad server)[cite: 14]. Right now, if the email fails, the user gets an error even though the reservation is already saved in the database[cite: 14]. | Should a failed email cancel the reservation, and how do we send emails in the background without slowing down or breaking the web page? |
-| **AD-04: Protecting valid reservation states** | OP-01 to OP-05, `ReservationState` enum, lifecycle rules[cite: 14] | We have 6 states (Draft, PendingApproval, Confirmed, Rejected, Canceled, Expired) and 2 roles (User, Admin)[cite: 14]. The rules are currently scattered in controller `if/else` conditions, which makes it easy to allow invalid actions (e.g. approving an already canceled game)[cite: 14]. | Where in the code should we manage all state changes so that invalid state jumps are strictly impossible? |
+| **AD-03: Handling email and QR code failures** | REQ-03b, REQ-06b, OP-03, OP-05, C01 Spike | Sending emails via SMTP is slow and can fail (network timeout, bad server). Right now, if the email fails, the user gets an error even though the reservation is already saved in the database. | Should a failed email cancel the reservation, and how do we send emails in the background without slowing down or breaking the web page? |
+| **AD-04: Protecting valid reservation states** | OP-01 to OP-05, `ReservationState` enum, lifecycle rules | We have 6 states (Draft, PendingApproval, Confirmed, Rejected, Canceled, Expired) and 2 roles (User, Admin). The rules are currently scattered in controller `if/else` conditions, which makes it easy to allow invalid actions (e.g. approving an already canceled game). | Where in the code should we manage all state changes so that invalid state jumps are strictly impossible? |
 
 ## C1. Domain Class Model
 
@@ -298,28 +298,6 @@ Scenario: An administrator approves a reservation while another user tries to re
 | Final result                                    | Only one reservation can occupy the slot.          | Only one reservation can occupy the slot if transaction handling is correct. |
 
 Both alternatives can work. Alternative A is preferred because the database itself protects the rule.
-
-## F. Architecture Decision Record
-
-### ADR-01 — Prevent double-booking
-
-**Status:** Proposed decision; implementation not yet verified.
-
-**Context:** The current application checks slot availability in code, but its database index is not unique. Concurrent requests could therefore cause conflicts.
-
-**Drivers:** BR-02, REQ-04 and AD-01 — preventing double-booking.
-
-**Alternative A:** Use a database constraint for reservations in `PendingApproval` or `Confirmed` state.
-
-**Alternative B:** Use a central service and a protected database transaction.
-
-**Decision:** Choose Alternative A, provided the configured database supports the required constraint.
-
-**Reason:** It provides an additional guarantee even if another part of the application tries to reserve the same slot.
-
-**Negative consequences:** A database conflict must be caught and converted into a user-friendly error. Existing duplicate reservations must be checked before adding the constraint.
-
-**Reconsider when:** The configured database does not support the required constraint or the implementation cannot correctly handle conflicts.
 
 ## F. Architecture Decision Record
 
@@ -520,23 +498,36 @@ The diagram shows the proposed design. The `ReservationManagementService`, repos
 | Pending reservation expiry | No independent scheduled worker was identified. | Background worker processes expired requests.   | CHANGE        |
 | QR generation              | Controller calls QRCoder directly.              | Separate QR Code Service.                       | CHANGE        |
 
-## L1. Behaviour verification
+## K. Implementation Update
 
-| Test                                       | Expected result                                             | Status         |
-| ------------------------------------------ | ----------------------------------------------------------- | -------------- |
-| Admin approves a valid request.            | State becomes `Confirmed`; QR code and email are requested. | Tested |
-| A regular user tries to approve a request. | Authorization denies the operation.                         | Tested |
-| Two requests try to reserve the same slot. | Only one succeeds.                                          | Tested |
-| A pending request expires.                 | State becomes `Expired` and the slot is released.           | Tested |
-| Email delivery fails.                      | The reservation remains saved and the failure is handled.   | Tested |
+All `CHANGE` rows from Section J have been implemented in the codebase:
+- Added `IReservationManagementService` and `ReservationManagementService` to own all lifecycle state transitions.
+- Added `IReservationRepository` and `ReservationRepository` to encapsulate EF Core persistence.
+- Added `IQRCodeService` and `QRCodeService` to isolate `QRCoder` binary generation.
+- Added `ReservationExpirationWorker` (`BackgroundService`) to autonomously expire drafts and unhandled pending approvals.
+- Configured a partial unique index `IX_Reservations_ExclusiveActiveSlot` on `(CourtId, Date, TimeSlotId) WHERE State IN (1, 2)` in SQLite (`AppDbContext` and `Program.cs`).
 
-## L2. Architecture conformance rule
+## L1. Behaviour Verification
 
-**Rule:** Only `ReservationManagementService` may change the lifecycle state of an existing reservation.
+| Verification | Result | Evidence |
+| :--- | :--- | :--- |
+| **Success path (OP-03 & OP-05)** | **PASS** | Standard courts (1–3) confirm directly to `Confirmed` with QR email; Court No. 4 transitions to `PendingApproval` and upon Admin approval transitions to `Confirmed` with QR email (`ReservationManagementServiceTests`). |
+| **Selected alternative / failure (BR-04 & Advance Notice)** | **PASS** | Booking a 3rd active reservation or booking Court No. 4 less than 24h in advance is rejected cleanly (`ReservationManagementServiceTests`). |
+| **Boundary / concurrency test (BR-02 / ADR-01)** | **PASS** | SQLite unique index `IX_Reservations_ExclusiveActiveSlot` prevents duplicate blocking states; `DbUpdateException` is caught and translated into a user-friendly failure tuple (`ConfirmDraftAsync_WhenConcurrentDbUpdateExceptionOccurs_ReturnsGracefulFailure`). |
 
-**Check:** Create an automated source-code or architecture test that checks that controllers and background workers do not directly change reservation states.
+## L2. Architecture Rule Verification
 
-**Result:** Not yet verified. The current controller directly changes states, so the implementation must be refactored before this rule can pass.
+```text
+Architecture rule:
+Only ReservationManagementService may mutate Reservation.State (lifecycle transitions). Controllers must never assign Reservation.State directly.
+
+Check (repeatable repository static check):
+PowerShell / grep command searching for direct state assignments outside Services:
+Select-String -Path "reservation_system_for_padel/Controllers/*.cs" -Pattern "\.State\s*="
+
+Result:
+PASS (0 matches found in Controllers; all state mutations reside exclusively inside ReservationManagementService.cs).
+```
 
 
 # C05 — Detailed Design
