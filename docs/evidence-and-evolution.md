@@ -161,8 +161,6 @@ Commit / application tag:
 
 ---
 
----
-
 ## C06 Internal Evidence Assessment
 
 - **Assessed baseline:** `tag C05` (commit `79fbe08` / `b492019`), assessed by reviewing team *Daniel Kodrla a spol.*
@@ -178,3 +176,22 @@ Commit / application tag:
 - **Remaining evidence gaps:**
   - Align `<TargetFramework>` in `reservation_system_for_padel.Tests.csproj` with the main project (`net8.0`) so `dotnet test` runs on .NET 8 SDK without requiring .NET 9 runtime.
   - Update the status label of `ADR-01` in `docs/architecture-and-decisions.md` from `Proposed` to `Accepted & Verified` and explicitly mention `PENDING_APPROVAL` directly inside the `BR-02` paragraph of `docs/c02-specification.md`.
+
+---
+ 
+## C07–C08 — Project Assessment, Risk Management & Reviews
+
+### 1. Disposition of C06 Internal Evidence Assessment Findings
+
+During the independent assessment (C06) conducted by the assessment team, three candidate findings were identified. Their technical verification, accepted disposition, and implemented actions are presented below.
+
+| Finding ID | Claim / Description | Status & Verdict | Owner & Action / Justification |
+| :--- | :--- | :--- | :--- |
+| **F1** | The `ConfirmDraftAsync` method did not verify whether the court was active (`!court.IsActive`) or whether the slot’s start time had already passed (`timeSlot.StartTime <= currentTime`). | **VERIFIED FINDING**<br>(ACCEPTED) | **Owner:** Dev Team<br>**Action:** Additional validation of court activity and the time window was added directly to the reservation creation/confirmation logic in `ReservationManagementService`. |
+| **F2** | The `CancelReservationAsync` method also allowed reservations in the `Draft` state to be cancelled, even though a separate operation, `CancelDraftAsync`, exists for drafts. | **VERIFIED FINDING**<br>(ACCEPTED) | **Owner:** Dev Team<br>**Action:** A state restriction was added — `CancelReservationAsync` now explicitly allows cancellation only for reservations in the `Confirmed` and `PendingApproval` states. This was verified by the `CancelReservationAsync_DraftReservation_IsRejected` test. |
+
+### 2. Risk Register (C07 / C08)
+
+#### R-01: Concurrent Confirmation of the Same Slot (Race Condition / Double Booking)
+
+
