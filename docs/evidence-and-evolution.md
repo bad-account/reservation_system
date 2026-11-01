@@ -193,5 +193,50 @@ During the independent assessment (C06) conducted by the assessment team, three 
 ### 2. Risk Register (C07 / C08)
 
 #### R-01: Concurrent Confirmation of the Same Slot (Race Condition / Double Booking)
+- **Cause → Uncertain Event → Consequence:** If two users submit a request to confirm/create a reservation for the same court and time at the same millisecond, the application layer may check availability before the first record is written, violating the BR-02 exclusivity invariant (double booking).
+- **Initial L / I / Priority:** Likelihood = 2 (Medium), Impact = 3 (High) → **HIGH (6)**.
+- **Response Strategy:** **MITIGATE**
+- **Treatment, Owner, Due:** Configure a partial unique index in SQLite/EF Core (`IX_Reservations_ExclusiveActiveSlot` for `State IN (1, 2)`) and catch `DbUpdateException` in `ReservationManagementService`. Owner: Backend Lead. Due: Completed (C03).
+- **Treatment Evidence:** The index is defined in `AppDbContext.cs`; the `ConfirmDraftAsync_WhenConcurrentDbUpdateExceptionOccurs_ReturnsGracefulFailure` test verifies that the exception is handled correctly.
+- **Expected Residual Risk:** L = 1 (Low), I = 2 (Medium) → **LOW (2)**.
+- **Actual Residual Risk:** L = 1, I = 2 → **LOW (2)** (verified via unit test and database constraint definition).
+- **Acceptance & Contingency:** Accepted by the team. If the database driver fails, the system returns a clear error message.
+- **Monitoring / Trigger:** Trigger: Failure of the concurrency integration test. Review when the persistence layer changes.
+
+#### R-02: Tournament Court No. 4 Being Blocked by an Unprocessed Request
+
+- **Cause → Uncertain Event → Consequence:** A player creates a `PendingApproval` reservation for Court No. 4, and the facility administrator (Admin) neither approves nor rejects it before the match starts. As a result, the court remains blocked and the booking opportunity is lost, reducing utilisation of the premium court.
+- **Initial L / I / Priority:** Likelihood = 2 (Medium), Impact = 2 (Medium) → **MEDIUM (4)**.
+- **Response Strategy:** **MITIGATE**
+- **Treatment, Owner, Due:** Implement an autonomous `ReservationExpirationWorker` background service that checks every 60 seconds and automatically expires pending reservations whose start time is less than 24 hours away. Owner: Background Services Dev. Due: Completed (C05).
+- **Treatment Evidence:** The `ReservationExpirationWorker.cs` class and the `CleanupExpiredReservationsAsync()` method in `ReservationManagementService.cs`.
+- **Expected Residual Risk:** L = 1 (Low), I = 1 (Low) → **LOW (1)**.
+- **Actual Residual Risk:** L = 1, I = 1 → **LOW (1)** (verified).
+- **Acceptance & Contingency:** Accepted. The administrator is also notified by email.
+- **Monitoring / Trigger:** Trigger: A player complaint about a request that has not been answered.
+
+#### R-03: Latency or Outage of the External SMTP Gateway When Sending Emails with QR Codes
+
+- **Cause → Uncertain Event → Consequence:** Emails are sent through an external SMTP server synchronously within the HTTP request scope. If the SMTP server does not respond or times out, the HTTP request may fail or become significantly slower, even though the reservation has already been confirmed in the database.
+- **Initial L / I / Priority:** Likelihood = 2 (Medium), Impact = 2 (Medium) → **MEDIUM (4)**.
+- **Response Strategy:** **MITIGATE**
+- **Treatment, Owner, Due:** Implement `try-catch` blocks in `EmailSender` and `ReservationManagementService` so that an SMTP outage is logged but does not cause the reservation confirmation transaction to fail. The UI displays a success message, and the user can download the QR code later via the `/Reservation/GetQrCode` endpoint. Owner: Integration Dev. Due: Completed.
+- **Treatment Evidence:** `EmailSender.cs` safely catches exceptions, and `ReservationManagementService` returns `Success = true` even if email delivery fails.
+- **Expected Residual Risk:** L = 1 (Low), I = 2 (Medium) → **LOW (2)**.
+- **Actual Residual Risk:** L = 1, I = 2 → **LOW (2)** (verified).
+- **Acceptance & Contingency:** Accepted as a pragmatic compromise for a monolithic application. An asynchronous queue (RabbitMQ/Hangfire) has been deferred until future scaling is required.
+- **Monitoring / Trigger:** Trigger: An increase in SMTP-related error entries in the application log.
+
+#### R-04: Unauthorized Access to Premium Court Approval (Admin Operations)
+
+- **Cause → Uncertain Event / Consequence:** A regular user attempts to call the POST endpoint for approving/rejecting a reservation for Court No. 4 (`/Reservation/Approve`). If role validation is missing, this could violate the security invariant and allow unauthorized booking of the tournament court.
+- **Initial L / I / Priority:** Likelihood = 1 (Low), Impact = 3 (High) → **MEDIUM (3)**.
+- **Response Strategy:** **AVOID**
+- **Treatment, Owner, Due:** Apply the `[Authorize(Roles = "Admin")]` attribute consistently to all relevant actions in `ReservationController` (`PendingApprovals`, `Approve`, `Reject`). Owner: Security Lead. Due: Completed.
+- **Treatment Evidence:** `ReservationController.cs` (lines 220–290) contains explicit role-based authorization.
+- **Expected Residual Risk:** L = 1 (Low), I = 1 (Low) → **LOW (1)**.
+- **Actual Residual Risk:** L = 1, I = 1 → **LOW (1)** (verified).
+- **Acceptance & Contingency:** Accepted. ASP.NET Core Identity reliably enforces role claims.
+- **Monitoring / Trigger:** Trigger: Security audit of permissions.
 
 
