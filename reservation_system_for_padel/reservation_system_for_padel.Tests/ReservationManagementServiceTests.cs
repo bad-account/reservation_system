@@ -188,10 +188,14 @@ public class ReservationManagementServiceTests
     [Fact]
     public async Task CreateDraftAsync_Court4LessThan24HoursBeforeStart_ReturnsAdvanceBookingFailure()
     {
-        var (service, _, _, _) = CreateSut();
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var (service, repo, _, _) = CreateSut();
+        var targetDateTime = DateTime.Now.AddHours(2); 
+        var targetDate = DateOnly.FromDateTime(targetDateTime);
+        var targetTime = new TimeOnly(targetDateTime.Hour, targetDateTime.Minute);
 
-        var result = await service.CreateDraftAsync(courtId: 4, timeSlotId: 1, date: today, userId: 2);
+        repo.TimeSlots.Add(new TimeSlot { Id = 99, StartTime = targetTime, EndTime = targetTime.AddHours(1) });
+
+        var result = await service.CreateDraftAsync(courtId: 4, timeSlotId: 99, date: targetDate, userId: 2);
 
         Assert.False(result.Success);
         Assert.Contains("24 hodin předem", result.Message);
@@ -290,5 +294,85 @@ public class ReservationManagementServiceTests
         Assert.False(result.Success);
         Assert.Equal(ReservationState.Draft, draft.State);
         Assert.Equal(0, email.SentCount);
+    }
+
+    // ==========
+    // C08 STEP 2
+    // ==========
+
+    private static (AppDbContext Db, ReservationManagementService Service, Microsoft.Data.Sqlite.SqliteConnection Conn) CreateSqliteSut()
+    {
+        var connection = new Microsoft.Data.Sqlite.SqliteConnection("DataSource=:memory:");
+        connection.Open();
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var db = new AppDbContext(options);
+        db.Database.EnsureCreated();
+        db.Database.ExecuteSqlRaw(@"
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_Reservations_ExclusiveActiveSlot 
+            ON Reservations(CourtId, Date, TimeSlotId) 
+            WHERE State IN (1, 2);
+        ");
+
+        var repo = new ReservationRepository(db);
+        var email = new SpyEmailSender();
+        var qr = new FakeQrCodeService();
+        var service = new ReservationManagementService(repo, email, qr, NullLogger<ReservationManagementService>.Instance);
+
+        return (db, service, connection);
+    }
+
+    // TC-C08-01: Positive adjacent reservations on the same court (persisted in SQLite)
+    [Fact]
+    public async Task TC_C08_01_AdjacentTimeSlotsOnSameCourt_BothReachConfirmedInSqlite()
+    {
+        var (db, service, conn) = CreateSqliteSut();
+        using var _ = conn;
+        var targetDate = DateOnly.FromDateTime(DateTime.Today.AddDays(3));
+
+        // B1: Confirmed on Court 1, Slot 3 (10:00-11:00)
+        // B2: Draft on Court 1, Slot 4 (11:00-12:00 - adjacent)
+        var b1 = new Reservation { CourtId = 1, TimeSlotId = 3, Date = targetDate, UserId = 1, State = ReservationState.Confirmed, CreatedAt = DateTime.UtcNow };
+        var b2 = new Reservation { CourtId = 1, TimeSlotId = 4, Date = targetDate, UserId = 1, State = ReservationState.Draft, CreatedAt = DateTime.UtcNow };
+        db.Reservations.AddRange(b1, b2);
+        await db.SaveChangesAsync();
+
+        // Act: Confirm adjacent reservation B2
+        var result = await service.ConfirmDraftAsync(b2.Id, userId: 1);
+
+        // Assert: Independently query persisted state from SQLite
+        Assert.True(result.Success);
+        var persistedB1 = await db.Reservations.AsNoTracking().FirstAsync(r => r.Id == b1.Id);
+        var persistedB2 = await db.Reservations.AsNoTracking().FirstAsync(r => r.Id == b2.Id);
+        Assert.Equal(ReservationState.Confirmed, persistedB1.State);
+        Assert.Equal(ReservationState.Confirmed, persistedB2.State);
+    }
+
+    // TC-C08-02: Negative overlapping confirmation on the same court and slot (persisted in SQLite)
+    [Fact]
+    public async Task TC_C08_02_ConflictingConfirmationOnSameCourtAndSlot_IsRejectedBySqliteConstraint()
+    {
+        var (db, service, conn) = CreateSqliteSut();
+        using var _ = conn;
+        var targetDate = DateOnly.FromDateTime(DateTime.Today.AddDays(3));
+
+        // B1: Already Confirmed on Court 1, Slot 3 (10:00-11:00)
+        // B2: Competing Draft on the exact same Court 1, Slot 3 (10:00-11:00)
+        var b1 = new Reservation { CourtId = 1, TimeSlotId = 3, Date = targetDate, UserId = 1, State = ReservationState.Confirmed, CreatedAt = DateTime.UtcNow };
+        var b2 = new Reservation { CourtId = 1, TimeSlotId = 3, Date = targetDate, UserId = 1, State = ReservationState.Draft, CreatedAt = DateTime.UtcNow };
+        db.Reservations.AddRange(b1, b2);
+        await db.SaveChangesAsync();
+
+        // Act: Attempt to confirm conflicting B2
+        var result = await service.ConfirmDraftAsync(b2.Id, userId: 1);
+
+        // Assert: Rejected by unique index IX_Reservations_ExclusiveActiveSlot, B1 stays Confirmed, B2 is not Confirmed
+        Assert.False(result.Success);
+        var confirmedCount = await db.Reservations.AsNoTracking()
+            .CountAsync(r => r.CourtId == 1 && r.Date == targetDate && r.TimeSlotId == 3 && r.State == ReservationState.Confirmed);
+        Assert.Equal(1, confirmedCount);
     }
 }
