@@ -239,4 +239,70 @@ During the independent assessment (C06) conducted by the assessment team, three 
 - **Acceptance & Contingency:** Accepted. ASP.NET Core Identity reliably enforces role claims.
 - **Monitoring / Trigger:** Trigger: Security audit of permissions.
 
+---
 
+## C08 — Controlled Change: Baseline & Pre-Change Verification Evidence
+
+### Step 0 — Frozen Before-Change Baseline
+
+- **Baseline commit/tag:** `tag C08` (commit on `main` prior to `CR-08` 12h cancellation implementation)
+- **Specification & Rules:** `OP-01..OP-05`, `BR-01..BR-05` @ `v0.2` (`docs/c02-specification.md`)
+- **Architecture & Decisions:** `ADR-01` (SQLite partial unique index `IX_Reservations_ExclusiveActiveSlot`), C03 `G2/G3` (`docs/architecture-and-decisions.md`)
+- **Database Schema:** `20260915190609_InitialCreate` + `IX_Reservations_ExclusiveActiveSlot WHERE State IN (1, 2)`
+- **Runtime & Stack:** .NET 8.0 SDK (C# 12, ASP.NET Core MVC, EF Core SQLite)
+- **Test DB & Setup:** Isolated in-memory SQLite connection (`DataSource=:memory:`) with real DDL schema & unique index
+- **Verification Command:** `dotnet test` (9 passed, 0 failed; zero external secrets required)
+
+---
+
+### Step 2 — Executed Baseline Test Cases (Preserved Behavior Verification)
+
+#### C08 / TC-C08-01 — Positive Adjacent Reservations on Exclusive Court (`[10:00, 11:00)` and `[11:00, 12:00)`)
+
+- **Accepted test basis / rule and revision, actual risk ID:** `BR-01` (Discrete 60-minute time slot interval semantics `[start, end)`) & `BR-02` (Exclusive Resource Invariant) @ `v0.2` (`docs/c02-specification.md`); mitigates Risk `R-02`.
+- **Baseline commit, DB schema, runtime, data setup and command:** `tag C08`; EF Core SQLite schema with `IX_Reservations_ExclusiveActiveSlot`; .NET 8.0; isolated SQLite `:memory:` database seeded via `EnsureCreated()` (`CourtId = 1`, `TimeSlotId = 3` `[10:00, 11:00)`, `TimeSlotId = 4` `[11:00, 12:00)`, `UserId = 1`); command: `dotnet test --filter TC_C08_01`.
+- **Preconditions, roles and exact initial persisted state:**
+  - Authenticated Player (`UserId = 1`, `admin@padel.cz` seeded user).
+  - Standard `CourtId = 1` (`Number = 1`, `IsActive = true`).
+  - Persisted reservation `B1`: `CourtId = 1`, `Date = today + 3 days`, `TimeSlotId = 3` (`10:00–11:00`), `State = CONFIRMED` (`2`).
+  - Persisted reservation `B2`: `CourtId = 1`, `Date = today + 3 days`, `TimeSlotId = 4` (`11:00–12:00`), `State = DRAFT` (`0`).
+- **Test data including intervals and timezones:** `targetDate = DateOnly.FromDateTime(DateTime.Today.AddDays(3))`; `B1` interval `[10:00, 11:00)`, `B2` adjacent interval `[11:00, 12:00)` (local CET/CEST club date/time).
+
+| # | Action / input | Expected BEFORE execution | Actual AFTER execution | Evidence |
+| :---: | :--- | :--- | :--- | :--- |
+| 1 | Initialize isolated SQLite DB, apply schema + `IX_Reservations_ExclusiveActiveSlot`, insert `B1` (`CONFIRMED`, slot `10:00–11:00`) and `B2` (`DRAFT`, slot `11:00–12:00`). | Exactly 1 `CONFIRMED` row (`B1`) and 1 `DRAFT` row (`B2`) persisted in `Reservations` table. | `SaveChangesAsync()` succeeded; `B1.Id = 1` (`Confirmed`), `B2.Id = 2` (`Draft`). | `ReservationManagementServiceTests.cs` (`TC_C08_01_AdjacentTimeSlotsOnSameCourt_BothReachConfirmedInSqlite`) |
+| 2 | Independently inspect stored slots and states before confirmation. | `B1` occupies `TimeSlotId = 3` (`[10:00, 11:00)`), `B2` occupies `TimeSlotId = 4` (`[11:00, 12:00)`); zero overlap on `(CourtId, Date, TimeSlotId)`. | Verified in SQLite context prior to calling `ConfirmDraftAsync`. | `ReservationManagementServiceTests.cs` |
+| 3 | Execute `service.ConfirmDraftAsync(b2.Id, userId: 1)`. | Returns `Success == true` because standard Court 1 does not require admin approval and adjacent slot 4 does not conflict with slot 3. | Returned `(Success: true, Message: "Rezervace byla úspěšně potvrzena a QR kód vám byl odeslán na e-mail!")`. | `dotnet test` execution output (`PASS`) |
+| 4 | Independently query committed state from SQLite using `.AsNoTracking()` for both `B1` and `B2`. | Both `B1.State == Confirmed` and `B2.State == Confirmed` exist in SQLite without unique index violation. | `persistedB1.State == Confirmed` and `persistedB2.State == Confirmed` verified via `AsNoTracking()` SQL `SELECT`. | `ReservationManagementServiceTests.cs` |
+| 5 | Dispose in-memory SQLite connection. | Test state is completely destroyed and repeatable on next run. | Connection disposed; repeated runs deterministic. | `using var _ = conn;` |
+
+- **Final postcondition / independently read committed-state oracle:** Both adjacent reservations `B1` (`[10:00, 11:00)`) and `B2` (`[11:00, 12:00)`) are persisted in `State = Confirmed` (`2`) in SQLite.
+- **Verdict PASS / FAIL / BLOCKED / NOT RUN + supporting observation:** **`PASS`** — Executed via `dotnet test`, confirmed against real SQLite engine with active unique index.
+- **If FAIL / If BLOCKED:** N/A (test passed).
+- **What remains untested / actual residual exposure:** Multi-process file-system lock contention (`SQLITE_BUSY`) under heavy parallel HTTP load is not covered by single-connection `:memory:` SQLite.
+
+---
+
+#### C08 / TC-C08-02 — Negative Overlapping Confirmation on Same Court and Slot (`[10:00, 11:00)`)
+
+- **Accepted test basis / rule and revision, actual risk ID:** `REQ-04` & `BR-02` (Exclusive Resource Invariant — at most one blocking reservation per court, date, and time slot) @ `v0.2` (`docs/c02-specification.md`), `ADR-01` (`docs/architecture-and-decisions.md`); directly addresses and closes Risk `R-02`.
+- **Baseline commit, DB schema, runtime, data setup and command:** `tag C08`; EF Core SQLite schema with partial unique index `IX_Reservations_ExclusiveActiveSlot ON Reservations(CourtId, Date, TimeSlotId) WHERE State IN (1, 2)`; .NET 8.0; command: `dotnet test --filter TC_C08_02`.
+- **Preconditions, roles and exact initial persisted state:**
+  - Authenticated Player (`UserId = 1`).
+  - Standard `CourtId = 1` (`Number = 1`, `IsActive = true`).
+  - Persisted reservation `B1`: `CourtId = 1`, `Date = today + 3 days`, `TimeSlotId = 3` (`10:00–11:00`), `State = CONFIRMED` (`2`).
+  - Persisted competing reservation `B2`: `CourtId = 1`, `Date = today + 3 days`, `TimeSlotId = 3` (`10:00–11:00`), `State = DRAFT` (`0` — allowed by partial index because `0 NOT IN (1, 2)`).
+- **Test data including intervals and timezones:** `targetDate = DateOnly.FromDateTime(DateTime.Today.AddDays(3))`; both `B1` and `B2` target `CourtId = 1, TimeSlotId = 3` (`[10:00, 11:00)`).
+
+| # | Action / input | Expected BEFORE execution | Actual AFTER execution | Evidence |
+| :---: | :--- | :--- | :--- | :--- |
+| 1 | Initialize isolated SQLite DB with `IX_Reservations_ExclusiveActiveSlot`, insert `B1` (`CONFIRMED`, Court 1, Slot 3) and competing `B2` (`DRAFT`, Court 1, Slot 3). | `B1` is `CONFIRMED` (`2`), `B2` is `DRAFT` (`0`); SQLite allows both because partial unique index filters `WHERE State IN (1, 2)`. | Both rows inserted into SQLite (`B1.Id = 1`, `B2.Id = 2`). | `ReservationManagementServiceTests.cs` (`TC_C08_02_ConflictingConfirmationOnSameCourtAndSlot_IsRejectedBySqliteConstraint`) |
+| 2 | Independently verify initial persisted state before confirmation attempt. | Exactly 1 `CONFIRMED` reservation exists for `(CourtId=1, Date, TimeSlotId=3)`. | Confirmed prior to `ConfirmDraftAsync` call. | `ReservationManagementServiceTests.cs` |
+| 3 | Execute `service.ConfirmDraftAsync(b2.Id, userId: 1)` to promote `B2` from `DRAFT` to `CONFIRMED`. | SQLite rejects the `UPDATE Reservations SET State = 2` due to `UNIQUE constraint failed: Reservations.CourtId, Reservations.Date, Reservations.TimeSlotId`; service catches `DbUpdateException` and returns `Success == false`. | Returned `(Success: false, Message: "Tento termín byl v mezičase obsazen.")`; zero emails sent. | `dotnet test` execution output (`PASS`) |
+| 4 | Independently query SQLite via `.AsNoTracking().CountAsync(...)` after transaction failure. | `B1` remains `CONFIRMED`; `B2` is **not** `CONFIRMED` in SQLite; total `CONFIRMED` count for the slot is strictly `1`. | `confirmedCount == 1` in SQLite database after rejected commit. | `ReservationManagementServiceTests.cs` |
+| 5 | Dispose connection and repeat test execution. | Reproducible rejection on every execution. | Verified repeatable via `dotnet test`. | `ReservationManagementServiceTests.cs` |
+
+- **Final postcondition / independently read committed-state oracle:** Exactly 1 `CONFIRMED` reservation (`B1`) exists in SQLite for `(CourtId = 1, Date = today + 3 days, TimeSlotId = 3)`; `B2` did not reach `CONFIRMED` in persistent storage.
+- **Verdict PASS / FAIL / BLOCKED / NOT RUN + supporting observation:** **`PASS`** — Real SQLite partial unique index `IX_Reservations_ExclusiveActiveSlot` triggered `DbUpdateException`, which `ReservationManagementService.ConfirmDraftAsync` caught and translated into a clean rejection tuple. Risk `R-02` is now **VERIFIED** and closed.
+- **If FAIL / If BLOCKED:** N/A (test passed).
+- **What remains untested / actual residual exposure:** New cancellation cutoff behavior (`CR-08` — 12h window) is `PLANNED` and designed in `docs/intent-and-change.md`, to be implemented and verified in **C09**.
