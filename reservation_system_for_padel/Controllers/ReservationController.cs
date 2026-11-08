@@ -35,6 +35,11 @@ public class ReservationController : Controller
     // GET: /Reservation?date=2026-10-05
     public async Task<IActionResult> Index(DateOnly? date)
     {
+        if (User.IsInRole("Admin"))
+        {
+            return RedirectToAction(nameof(PendingApprovals));
+        }
+
         await _reservationService.CleanupExpiredReservationsAsync();
 
         var targetDate = date ?? DateOnly.FromDateTime(DateTime.Today);
@@ -210,6 +215,11 @@ public class ReservationController : Controller
     [Authorize]
     public async Task<IActionResult> MyReservations()
     {
+        if (User.IsInRole("Admin"))
+        {
+            return RedirectToAction(nameof(PendingApprovals));
+        }
+
         await _reservationService.CleanupExpiredReservationsAsync();
         int userId = CurrentUserId!.Value;
 

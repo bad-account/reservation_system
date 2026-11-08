@@ -1,75 +1,433 @@
 ﻿@model IEnumerable<reservation_system_for_padel.Models.Reservation>
 
 @{
-    ViewData["Title"] = "Čekající žádosti o schválení";
+    Layout = null;
+    ViewData["Title"] = "Rezervace ke schválení";
+
+    var pendingReservations = Model?.ToList()
+        ?? new List<reservation_system_for_padel.Models.Reservation>();
 }
 
-<div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="h3 mb-0 text-primary">Správa žádostí – Kurt č. 4 (Turnajový)</h2>
-        <a asp-action="Index" class="btn btn-outline-secondary btn-sm">Zpět do kalendáře</a>
-    </div>
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    @if (TempData["SuccessMessage"] != null)
-    {
-        <div class="alert alert-success alert-dismissible fade show">
-            @TempData["SuccessMessage"]
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    }
-    @if (TempData["ErrorMessage"] != null)
-    {
-        <div class="alert alert-danger alert-dismissible fade show">
-            @TempData["ErrorMessage"]
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    }
+    <title>Rezervace ke schválení - Padel Ostrava</title>
 
-    @if (!Model.Any())
-    {
-        <div class="alert alert-info">Žádné rezervace momentálně nečekají na schválení.</div>
-    }
-    else
-    {
-        <div class="table-responsive shadow-sm rounded">
-            <table class="table table-striped table-hover align-middle mb-0 bg-white">
-                <thead class="table-dark">
-                    <tr>
-                        <th>ID</th>
-                        <th>Datum</th>
-                        <th>Čas</th>
-                        <th>Kurt</th>
-                        <th>Uživatel</th>
-                        <th>Vytvořeno</th>
-                        <th class="text-end">Rozhodnutí správce</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var item in Model)
-                    {
-                        <tr>
-                            <td>#@item.Id</td>
-                            <td><strong>@item.Date.ToString("dd. MM. yyyy")</strong></td>
-                            <td>@item.TimeSlot.StartTime.ToString("HH:mm") – @item.TimeSlot.EndTime.ToString("HH:mm")</td>
-                            <td>Kurt č. @item.Court.Number</td>
-                            <td>@item.User.Name @item.User.Surname (@item.User.Email)</td>
-                            <td>@item.CreatedAt.ToLocalTime().ToString("dd.MM. HH:mm")</td>
-                            <td class="text-end">
-                                <form asp-action="Approve" method="post" class="d-inline">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="reservationId" value="@item.Id" />
-                                    <button type="submit" class="btn btn-success btn-sm me-1">Schválit</button>
-                                </form>
-                                <form asp-action="Reject" method="post" class="d-inline" onsubmit="return confirm('Opravdu chcete tuto rezervaci zamítnout?');">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="reservationId" value="@item.Id" />
-                                    <button type="submit" class="btn btn-outline-danger btn-sm">Zamítnout</button>
-                                </form>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-</div>
+    <link rel="stylesheet"
+          href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #f4f6fa;
+            color: #202b3c;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .admin-page {
+            max-width: 1650px;
+            margin: 0 auto;
+            padding: 20px 30px 60px;
+        }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 60px;
+            gap: 20px;
+        }
+
+            .admin-header h1 {
+                margin: 0;
+                font-size: 36px;
+                font-weight: 700;
+            }
+
+        .subtitle {
+            margin-top: 10px;
+            color: #718096;
+        }
+
+        .admin-account {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .admin-name {
+            font-weight: 600;
+            color: #526174;
+        }
+
+        .approval-panel {
+            background: white;
+            border: 1px solid #e7ebf1;
+            border-radius: 16px;
+            box-shadow: 0 8px 28px rgba(27, 39, 58, .05);
+            overflow: hidden;
+        }
+
+        .panel-heading {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 24px 30px;
+            border-bottom: 1px solid #e7ebf1;
+        }
+
+            .panel-heading h2 {
+                margin: 0;
+                font-size: 22px;
+                font-weight: 700;
+            }
+
+            .panel-heading p {
+                margin: 6px 0 0;
+                color: #718096;
+                font-size: 14px;
+            }
+
+        .pending-count {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-width: 43px;
+            height: 43px;
+            padding: 0 12px;
+            border-radius: 50%;
+            background: #fff3d6;
+            color: #8a5a00;
+            font-weight: 700;
+        }
+
+        .panel-content {
+            padding: 28px;
+        }
+
+        .approval-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 850px;
+        }
+
+            .approval-table th {
+                padding: 17px 13px;
+                background: #f7f9fc;
+                color: #64748b;
+                font-size: 12px;
+                font-weight: 700;
+                text-align: left;
+                text-transform: uppercase;
+                white-space: nowrap;
+            }
+
+            .approval-table td {
+                padding: 22px 13px;
+                border-top: 1px solid #edf0f4;
+                font-size: 14px;
+                vertical-align: middle;
+            }
+
+        .reservation-date,
+        .reservation-time {
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .user-email {
+            display: block;
+            margin-top: 5px;
+            color: #718096;
+            font-size: 12px;
+        }
+
+        .created-ago {
+            display: block;
+            margin-top: 5px;
+            color: #8994a5;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .decision-cell {
+            text-align: right;
+            white-space: nowrap;
+        }
+
+            .decision-cell form {
+                display: inline-block;
+                margin-left: 5px;
+            }
+
+        .decision-button {
+            padding: 9px 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .empty-state {
+            padding: 55px 20px;
+            text-align: center;
+            color: #718096;
+        }
+
+            .empty-state strong {
+                display: block;
+                margin-bottom: 8px;
+                font-size: 19px;
+                color: #334155;
+            }
+
+        @@media (max-width: 700px) {
+            .admin-page {
+                padding: 25px 14px;
+            }
+
+            .admin-header {
+                align-items: flex-start;
+                flex-direction: column;
+                margin-bottom: 35px;
+            }
+
+            .admin-account {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .panel-content {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <main class="admin-page">
+
+        <!-- HLAVIČKA -->
+        <header class="admin-header">
+
+            <div>
+                <h1>Rezervace ke schválení</h1>
+
+                <p class="subtitle">
+                    Přehled rezervací čekajících na rozhodnutí správce.
+                </p>
+            </div>
+
+            <div class="admin-account">
+
+                <span class="admin-name">
+                    @User.Identity?.Name
+                </span>
+
+                <form method="post"
+                      asp-controller="Account"
+                      asp-action="Logout">
+
+                    @Html.AntiForgeryToken()
+
+                    <button type="submit"
+                            class="btn btn-outline-danger btn-sm">
+                        Odhlásit se
+                    </button>
+
+                </form>
+
+            </div>
+
+        </header>
+
+
+        <!-- ZPRÁVY -->
+        @if (TempData["SuccessMessage"] != null)
+        {
+            <div class="alert alert-success">
+                @TempData["SuccessMessage"]
+            </div>
+        }
+
+        @if (TempData["ErrorMessage"] != null)
+        {
+            <div class="alert alert-danger">
+                @TempData["ErrorMessage"]
+            </div>
+        }
+
+
+        <!-- PŘEHLED REZERVACÍ -->
+        <section class="approval-panel">
+
+            <div class="panel-heading">
+
+                <div>
+                    <h2>Čekající žádosti</h2>
+                </div>
+
+                <span class="pending-count">
+                    @pendingReservations.Count
+                </span>
+
+            </div>
+
+
+            <div class="panel-content">
+
+                @if (!pendingReservations.Any())
+                {
+                    <div class="empty-state">
+
+                        <strong>
+                            Momentálně tu nejsou žádné žádosti.
+                        </strong>
+
+                        Všechny rezervace jsou vyřízené.
+
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+
+                        <table class="approval-table">
+
+                            <thead>
+                                <tr>
+                                    <th>Datum</th>
+                                    <th>Čas</th>
+                                    <th>Kurt</th>
+                                    <th>Uživatel</th>
+                                    <th>Vytvořeno</th>
+                                    <th class="text-end">Rozhodnutí</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+
+                                @foreach (var item in pendingReservations)
+                                {
+                                    var elapsed = DateTime.UtcNow - item.CreatedAt;
+
+                                    if (elapsed < TimeSpan.Zero)
+                                    {
+                                        elapsed = TimeSpan.Zero;
+                                    }
+
+                                    string createdAgo;
+
+                                    if (elapsed.TotalDays >= 1)
+                                    {
+                                        createdAgo = $"před {(int)elapsed.TotalDays} d {elapsed.Hours} h";
+                                    }
+                                    else if (elapsed.TotalHours >= 1)
+                                    {
+                                        createdAgo = $"před {(int)elapsed.TotalHours} h {elapsed.Minutes} min";
+                                    }
+                                    else if (elapsed.TotalMinutes >= 1)
+                                    {
+                                        createdAgo = $"před {(int)elapsed.TotalMinutes} min";
+                                    }
+                                    else
+                                    {
+                                        createdAgo = "právě teď";
+                                    }
+
+                                    <tr>
+
+                                        <td class="reservation-date">
+                                            @item.Date.ToString("dd. MM. yyyy")
+                                        </td>
+
+                                        <td class="reservation-time">
+                                            @item.TimeSlot.StartTime.ToString("HH:mm")
+                                            –
+                                            @item.TimeSlot.EndTime.ToString("HH:mm")
+                                        </td>
+
+                                        <td>
+                                            Kurt č. @item.Court.Number
+                                        </td>
+
+                                        <td>
+                                            <strong>
+                                                @item.User.Name @item.User.Surname
+                                            </strong>
+
+                                            <span class="user-email">
+                                                @item.User.Email
+                                            </span>
+                                        </td>
+
+                                        <td>
+                                            <span class="created-ago">
+                                                @createdAgo
+                                            </span>
+                                        </td>
+
+                                        <td class="decision-cell">
+
+                                            <!-- SCHVÁLENÍ -->
+                                            <form asp-controller="Reservation"
+                                                  asp-action="Approve"
+                                                  method="post">
+
+                                                @Html.AntiForgeryToken()
+
+                                                <input type="hidden"
+                                                       name="reservationId"
+                                                       value="@item.Id" />
+
+                                                <button type="submit"
+                                                        class="btn btn-success decision-button">
+                                                    Schválit
+                                                </button>
+
+                                            </form>
+
+
+                                            <!-- ZAMÍTNUTÍ -->
+                                            <form asp-controller="Reservation"
+                                                  asp-action="Reject"
+                                                  method="post"
+                                                  onsubmit="return confirm('Opravdu chcete tuto rezervaci zamítnout?');">
+
+                                                @Html.AntiForgeryToken()
+
+                                                <input type="hidden"
+                                                       name="reservationId"
+                                                       value="@item.Id" />
+
+                                                <button type="submit"
+                                                        class="btn btn-outline-danger decision-button">
+                                                    Zamítnout
+                                                </button>
+
+                                            </form>
+
+                                        </td>
+
+                                    </tr>
+                                }
+
+                            </tbody>
+
+                        </table>
+
+                    </div>
+                }
+
+            </div>
+
+        </section>
+
+    </main>
+
+</body>
+</html>

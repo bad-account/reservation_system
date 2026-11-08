@@ -72,7 +72,12 @@ public class AccountController : Controller
 
         await SignInUser(user);
 
-        return RedirectToAction("Index", "Reservation");
+        if (user.Role == UserRole.Admin)
+        {
+            return RedirectToAction("PendingApprovals", "Reservation");
+        }
+
+        return RedirectToAction("Index", "Home");
     }
 
     [HttpPost]

@@ -15,6 +15,11 @@ namespace reservation_system_for_padel.Controllers
 
         public IActionResult Index()
         {
+            if (User.IsInRole("Admin"))
+            {
+                return RedirectToAction("PendingApprovals", "Reservation");
+            }
+
             return View();
         }
 
