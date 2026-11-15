@@ -564,7 +564,7 @@ PASS (0 matches found in Controllers; all state mutations reside exclusively ins
 | **DR-01: Temporal & 24h advance-booking rules** | `ReservationManagementService` | `DateOnly date`, `Court.Number`, `TimeSlot.StartTime`, `DateTime.Now` | Keeps business time policies inside the domain service rather than leaking them into HTTP controllers or database queries. |
 | **DR-02: Quota (BR-04) & Availability (BR-02) checks** | `ReservationManagementService` + `IReservationRepository` | `Reservation.UserId`, `Reservation.State`, `(CourtId, Date, TimeSlotId)` | The service evaluates the domain rules (`activeCount >= 2`, `alreadyBooked`), while the repository executes the underlying queries and the DB enforces atomic uniqueness. |
 | **DR-03: State machine transitions & Court 4 branching** | `ReservationManagementService` | `Reservation.State`, `Court.Number` (`1..3` vs `4`) | Single authoritative owner of lifecycle transitions (`Draft` → `Confirmed` / `PendingApproval` / `Rejected` / `Canceled`). |
-| **DR-04: Cancellation ownership & role guard** | `ReservationManagementService` | `Reservation.UserId`, caller `userId`, `isAdmin` flag | Ensures authorization rules for domain mutations are enforced even if called outside the web controller. |
+| **DR-04: Verify actor ownership, role authorization, and 12h cutoff on cancellation** | `ReservationManagementService` | `Reservation.UserId`, `Reservation.State`, `Date` + `TimeSlot.StartTime`, caller `userId`, `isAdmin` | Enforces ownership, state eligibility (`Confirmed` / `PendingApproval`), and the CR-08 12-hour advance cutoff for standard players cancelling `Confirmed` bookings. |
 | **DR-05: Autonomous expiration cleanup** | `ReservationExpirationWorker` → `ReservationManagementService` | `Reservation.CreatedAt` (5m TTL), `Date` + `StartTime` (24h window) | Worker provides the timer trigger; the service owns the actual expiration logic and state mutation (`Expired`). |
 | **DR-06: Post-transition QR & Email side effects** | `IQRCodeService`, `IEmailSender` (orchestrated by Service) | `Reservation` metadata, `User.Email`, PNG `byte[]` | Isolates external I/O (SMTP via MailKit) and binary rendering (`QRCoder`) behind interfaces for testability. |
 
@@ -699,6 +699,14 @@ classDiagram
 - **Postconditions:** `State` is persisted as `Confirmed`; access QR code is generated and sent to the player's email.
 - **Side effects:** Database update, QR generation, SMTP email dispatch.
 - **Failure behavior:** Returns `(false, "Žádost ke schválení nebyla nalezena.")` if reservation is missing or not in `PendingApproval` state.
+
+#### Operation 4: `CancelReservationAsync` (Updated in C09 / CR-08)
+- **Responsibility:** Cancels an active reservation (`Confirmed` or `PendingApproval`), enforcing ownership/admin privileges and the 12-hour advance cancellation cutoff (`BR-03` / `CR-08`) for standard players on `Confirmed` bookings.
+- **Input:** `int reservationId, int userId, bool isAdmin`
+- **Output:** `(bool Success, string Message)`
+- **Preconditions:** Reservation exists, is in `Confirmed` or `PendingApproval` state, caller is owner (`reservation.UserId == userId`) or `isAdmin == true`, and if `State == Confirmed && !isAdmin`, `Date.ToDateTime(TimeSlot.StartTime) > DateTime.Now.AddHours(12)`.
+- **Postconditions:** `State` becomes `Canceled`, slot is released, and cancellation email is dispatched.
+- **Failure behavior:** Returns `(false, errorMessage)` without mutating state or sending email if not found, unauthorized, in `Draft` state, or within `<= 12 hours` of slot start for a non-admin cancelling a `Confirmed` booking.
 
 ### 4.2 Algorithm / Decision Logic
 

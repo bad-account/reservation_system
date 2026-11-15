@@ -127,34 +127,37 @@ Attempt to confirm another user's DRAFT → rejected.
 ## OP-04 — Cancel Reservation
 
 **Goal / user value:**
-A user can cancel a previously created valid reservation. The court is immediately released for other players, the user's capacity under the 2-reservation limit is freed, and a cancellation email is sent to them.
+A user or administrator can cancel a previously created valid reservation. The court is immediately released for other players, the user's capacity under the 2-reservation limit is freed, and a cancellation email is sent to them. To protect club revenue from last-minute empty courts, standard players may cancel `CONFIRMED` bookings only if more than 12 hours remain before the slot start time (`CR-08`).
 
-**Observable requirement — EXAMPLE POLICY:**
-REQ-05: The system shall allow a reservation in the CONFIRMED state to be cancelled if the requester is its owner or a user with the Admin role.
-REQ-05b: After cancellation, the reservation shall transition to the CANCELED state, the slot shall no longer block court availability, and the user shall receive an informational cancellation email.
+**Observable requirement:**
+REQ-05: The system shall allow a reservation in the `CONFIRMED` or `PENDING_APPROVAL` state to be cancelled if the requester is its owner (`UserId == Reservation.UserId`) or a user with the `Admin` role, provided that for a standard player (`!isAdmin`) cancelling a `CONFIRMED` reservation, the slot start time is strictly more than 12 hours in the future (`slotStartDateTime > now + 12 hours`).
+REQ-05b: After cancellation, the reservation shall transition to the `CANCELED` state, the slot shall no longer block court availability, and the user shall receive an informational cancellation email.
 
 **Preconditions:**
 
 * The reservation exists.
-* The signed-in user is the reservation owner (`UserId == Reservation.UserId`) OR has the Admin role.
-* `Reservation.State == CONFIRMED` (with the possible addition of cancellation of DRAFT reservations via CancelDraft).
+* The signed-in user is the reservation owner (`UserId == Reservation.UserId`) OR has the `Admin` role.
+* `Reservation.State` is `CONFIRMED` or `PENDING_APPROVAL` (temporary `DRAFT` reservations are cancelled separately via `CancelDraft`).
+* If the caller is a standard player (`!isAdmin`) and `Reservation.State == CONFIRMED`, the slot start time must be strictly more than 12 hours ahead (`Date + TimeSlot.StartTime > DateTime.Now.AddHours(12)`).
 
 **Success postcondition:**
 
-* `Reservation.State = CANCELED` (or the DRAFT is physically deleted).
-* The slot immediately becomes available for new reservations (the index and query filter out CANCELED reservations).
-* The user once again has capacity for a new game.
+* `Reservation.State = CANCELED`.
+* The slot immediately becomes available for new reservations (the partial unique index and availability query filter out `CANCELED` reservations).
+* The user once again has capacity within their 2-reservation limit (`BR-04`).
 * A cancellation email is sent.
 
 **Failure outcomes:**
 
-* Reservation not found → error displayed.
-* Regular user attempts to cancel another user's reservation → rejected (You do not have permission to cancel another user's reservation).
+* Reservation not found or in `DRAFT` / terminal state → error displayed, state unchanged.
+* Regular user attempts to cancel another user's reservation → rejected (`Nemáte oprávnění rušit cizí rezervaci.`).
+* Regular user attempts to cancel a `CONFIRMED` reservation 12 hours or less before match start (`slotStartDateTime <= now + 12h`) → rejected (`Potvrzenou rezervaci lze zrušit nejpozději 12 hodin před začátkem hry.`), state remains `CONFIRMED`, and no cancellation email is sent.
 
 **Verification examples:**
-A player cancels their active reservation for tomorrow → the state changes to CANCELED, the slot turns green on the website, and it can immediately be reserved again.
-Player A sends a request to cancel Player B's reservation → rejected with a permission error.
-An Admin cancels Player B's reservation → successfully cancelled.
+A player cancels their `CONFIRMED` reservation 24 hours before start → state changes to `CANCELED`, the slot turns green, and it can immediately be reserved again.
+A player attempts to cancel their `CONFIRMED` reservation 6 hours before start → rejected with the 12-hour cutoff message, state remains `CONFIRMED`.
+A player cancels an unapproved `PENDING_APPROVAL` request on Court 4 3 hours before start → succeeds, state changes to `CANCELED`.
+An Admin cancels Player B's `CONFIRMED` reservation 2 hours before start → successfully cancelled.
 
 ## OP-05 — Approve / Reject Reservation
 
@@ -197,7 +200,7 @@ A single court (`CourtId`) may have at most one reservation in the CONFIRMED or 
 
 ## BR-03 — Cancellation policy
 
-A CONFIRMED reservation may only be cancelled by the user who created it or by an administrator. Once cancelled, the slot immediately becomes available again for the club, and the original access QR code becomes invalid.
+A `CONFIRMED` or `PENDING_APPROVAL` reservation may only be cancelled by the user who created it or by an administrator (`Admin`). A standard player (`!isAdmin`) may cancel a `CONFIRMED` reservation strictly more than 12 hours before the scheduled slot start time (`slotStartDateTime > now + 12h`; at `<= 12h` cancellation is rejected). Unapproved `PENDING_APPROVAL` requests may be withdrawn by the player at any time before start, and an administrator may cancel any active reservation at any time. Once cancelled, the slot immediately becomes available again for others.
 
 ## BR-04 — Active reservation limit (Domain-specific rule from C01)
 

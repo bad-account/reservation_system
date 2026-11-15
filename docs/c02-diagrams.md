@@ -30,20 +30,22 @@ flowchart LR
 
 # Reservation state diagram
 
+# Reservation state diagram
+
 ```mermaid
 stateDiagram-v2
     [*] --> DRAFT : createDraft [slot available & user active limit < 2]
 
-    DRAFT --> CONFIRMED : confirmDraft [within 5 min TTL]
+    DRAFT --> CONFIRMED : confirmDraft [within 5 min TTL & Courts 1..3]
     DRAFT --> PENDING_APPROVAL : confirmDraft [within 5 min TTL & Court 4]
     DRAFT --> REJECTED : cancelDraft / timeout [TTL > 5 min]
 
     PENDING_APPROVAL --> CONFIRMED : approveReservation [by Admin]
     PENDING_APPROVAL --> REJECTED : rejectReservation [by Admin]
-    PENDING_APPROVAL --> CANCELED : cancelReservation [by User]
+    PENDING_APPROVAL --> CANCELED : cancelReservation [by User or Admin before start]
     PENDING_APPROVAL --> EXPIRED : autoExpire [unapproved < 24h before game]
 
-    CONFIRMED --> CANCELED : cancelReservation [by user]
+    CONFIRMED --> CANCELED : cancelReservation [player & >12h before start OR admin]
     CONFIRMED --> EXPIRED : timePassed [Date & TimeSlot end passed]
 
     REJECTED --> [*]
@@ -92,17 +94,15 @@ flowchart TD
     
     AuthCheck -- No --> LoginRedirect[Redirect to Login page] --> EndLogin([End])
     
-    AuthCheck -- Yes --> PermCheck{Is user Reservation Owner?}
+    AuthCheck -- Yes --> PermCheck{Is user Reservation Owner<br/>OR Admin?}
     
     PermCheck -- No --> ErrPerm[Display error: Access Denied] --> EndPerm([End])
     
-    PermCheck -- Yes --> ConfirmModal[Display cancellation confirmation Modal]
+    PermCheck -- Yes --> CutoffCheck{Is State == CONFIRMED<br/>AND !isAdmin<br/>AND start <= now + 12h?}
     
-    ConfirmModal --> Choice{Confirm cancellation?}
+    CutoffCheck -- Yes --> ErrCutoff[Reject: Must cancel > 12h before start] --> KeepRes([End: Reservation remains CONFIRMED])
     
-    Choice -- No --> KeepRes([End: Reservation unchanged])
-    
-    Choice -- Yes --> UpdateDB[Update DB: State = CANCELED]
+    CutoffCheck -- No --> UpdateDB[Update DB: State = CANCELED]
     UpdateDB --> SendEmail[Send cancellation email]
     SendEmail --> EndSuccess([End: Slot Released & Email Sent])
 ```
