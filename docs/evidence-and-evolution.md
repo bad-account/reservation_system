@@ -338,3 +338,74 @@ During the independent assessment (C06) conducted by the assessment team, three 
 | 5 | Insert `CONFIRMED` booking `resNegative` at `now + 5h` (`< 12h`) in SQLite; invoke `CancelReservationAsync` as a standard player. | `AC-02`: Rejected (`Success == false`), no cancellation email dispatched. | Returned `Success == false`, `email.SentCount` remained unchanged. |
 | 6 | After rejection in step 5, query `resNegative` from SQLite via `AsNoTracking()`. | `resNegative` remains in SQLite in `CONFIRMED` (`2`) state; invariant `BR-02` holds. | Independent query confirmed `persistedNeg.State == Confirmed` (`PASS`). |
 | 7 | Run existing regression tests `TC_C08_01`, `TC_C08_02`, and `AC-04` unit tests (Admin `< 12h`, `PendingApproval` `< 12h`). | All previously accepted invariants (`BR-01..BR-05`) and `AC-04` exemptions hold. | `dotnet test` -> `Passed! - Failed: 0, Passed: 14, Total: 14` (`exit code 0`). |
+
+---
+
+## C09 — Integration, CI and Release Record
+
+- **C08 Change Card link and reviewed ACCEPT / NO_CHANGE / REJECT rationale:**
+  - Link: `docs/intent-and-change.md` (`## C08 / CR-08 — Controlled Change Card: 12-Hour Cancellation Cutoff Policy`).
+  - Reviewed disposition: **`ACCEPT` (Option A)** — authoritative server-side temporal guard inside `ReservationManagementService.CancelReservationAsync`. Chosen because it enforces the 12-hour cancellation cutoff atomically within the sole lifecycle owner without database schema migrations or leaking business rules into Razor views.
+- **Before commit/tag; after commit/tag:**
+  - `before = tag C08` (baseline prior to CR-08 implementation, 9/9 tests passing).
+  - `after = tag C09` (CR-08 implemented and verified, 14/14 tests passing).
+- **Affected claims and new AC, unchanged regression basis:**
+  - Affected claims: `OP-04 Cancel Reservation` and `BR-03 Cancellation Policy` (`docs/c02-specification.md`).
+  - New Acceptance Conditions: `AC-01` (standard player cancel `CONFIRMED` `> 12h` before start succeeds), `AC-02` (standard player cancel `CONFIRMED` `< 12h` before start rejected), `AC-03` (inclusive boundary `<= 12:00h` rejected), `AC-04` (Admin override `< 12h` and player `PENDING_APPROVAL` withdrawal `< 12h` permitted).
+  - Unchanged regression basis (`AC-05`): `BR-01` (interval semantics), `BR-02` (no overlapping active reservations via `ADR-01` unique index), `BR-04` (max 2 active reservations per user), `OP-01..OP-03`, and `OP-05`.
+- **Changed code/data/config/ADR and relevant N/A:**
+  - **Changed code:** `reservation_system_for_padel/Services/ReservationManagementService.cs` (`CancelReservationAsync` temporal guard for `State == Confirmed && !isAdmin`).
+  - **Changed tests:** `reservation_system_for_padel/reservation_system_for_padel.Tests/ReservationManagementServiceTests.cs` (added 4 unit tests + 1 multi-step SQLite integration test `TC_CR08_INT`).
+  - **Changed docs:** `docs/c02-specification.md`, `docs/c02-diagrams.md`, `docs/architecture-and-decisions.md`, `docs/evidence-and-evolution.md`.
+  - **Data / Schema / Config / ADR:** `N/A (Unchanged)` — `Reservation.Date` and `TimeSlot.StartTime` were already persisted and eagerly loaded via `.Include(r => r.TimeSlot)`; no EF Core migration or `appsettings.json` modification required.
+- **Peer review: reviewer, challenged assumption, decision:**
+  - **Reviewer:** Team member (`TRD0006`).
+  - **Challenged assumption:** Verified whether `reservation.TimeSlot` could be `null` inside `CancelReservationAsync` when computing `reservation.Date.ToDateTime(reservation.TimeSlot.StartTime)` and whether `PendingApproval` requests remain exempt from the 12h cutoff. Confirmed that `ReservationRepository.GetByIdAsync` eagerly includes `TimeSlot` and added a defensive `reservation.TimeSlot != null` check.
+  - **Decision:** **APPROVED** for merge and release tag `C09`.
+
+### Executed Verification & Regression Matrix
+
+| Test ID | Accepted oracle | Exact command/data | Expected | Actual | PASS/FAIL/BLOCKED | Evidence |
+| :--- | :--- | :--- | :--- | :--- | :---: | :--- |
+| **New behavior (Unit AC-01..04)** | `CR-08` (`AC-01`..`AC-04` in `docs/intent-and-change.md`) | `dotnet test --filter CancelReservationAsync` (`+24h`, `+6h`, Admin `+2h`, Pending `+3h`) | `>12h` -> `Canceled`; `<=12h` player `Confirmed` -> rejected (`State == Confirmed`, 0 emails); Admin & `PendingApproval` `<12h` -> `Canceled`. | All 4 unit test scenarios matched predeclared expectations. | **PASS** | `ReservationManagementServiceTests.cs` (Tests 8–11) |
+| **New behavior (SQLite Int. `TC-CR08-INT`)** | `CR-08` (`AC-01..03`) + independent SQLite `AsNoTracking()` read | `dotnet test --filter TC_CR08_INT` (SQLite `:memory:`, slots at `+24h`, `+12h`, `+5h`) | `+24h` commits `Canceled` in DB; `+12h` (boundary) and `+5h` rejected and remain `Confirmed` in DB. | Persisted states verified via independent `.AsNoTracking()` queries (`Canceled`, `Confirmed`, `Confirmed`). | **PASS** | `ReservationManagementServiceTests.cs` (`TC_CR08_INT_...`) |
+| **C08 regression `TC-C08-01`** | `BR-01` & `BR-02` adjacent slots `[10:00,11:00)` & `[11:00,12:00)` | `dotnet test --filter TC_C08_01` (Court 1, Slots 3 & 4, `today + 3 days`) | Both adjacent reservations reach and persist `Confirmed` (`2`) in SQLite. | Both rows persisted as `Confirmed` in SQLite. | **PASS** | `ReservationManagementServiceTests.cs` (`TC_C08_01_...`) |
+| **C08 regression `TC-C08-02`** | `REQ-04`, `BR-02` & `ADR-01` conflicting slot `[10:00,11:00)` | `dotnet test --filter TC_C08_02` (Court 1, Slot 3 duplicate confirm) | Rejected by SQLite index `IX_Reservations_ExclusiveActiveSlot`; `confirmedCount == 1`. | `ConfirmDraftAsync` returned `Success = false`; `confirmedCount == 1` in SQLite. | **PASS** | `ReservationManagementServiceTests.cs` (`TC_C08_02_...`) |
+
+- **Real integration boundary and post-commit state check:**
+  - Crosses the real application-to-database boundary (`ReservationManagementService` $\rightarrow$ `ReservationRepository` $\rightarrow$ EF Core `AppDbContext` $\rightarrow$ native SQLite engine with active DDL constraint `IX_Reservations_ExclusiveActiveSlot`). Post-commit state is verified using `.AsNoTracking()` queries to bypass the EF Core change tracker cache.
+- **Dependency lock + runtime + DB schema + nonsecret config:**
+  - **Runtime:** `.NET 8.0 SDK` (`net8.0` target framework across both web and test `.csproj` files).
+  - **Pinned NuGet dependencies (`reservation_system_for_padel.csproj` & `obj/project.assets.json`):** `Microsoft.EntityFrameworkCore.Sqlite (8.0.10)`, `Microsoft.EntityFrameworkCore.Tools (8.0.10)`, `MailKit (4.8.0)`, `QRCoder (1.6.0)`, `xunit (2.9.2)`, `Microsoft.NET.Test.Sdk (17.12.0)`.
+  - **DB Schema:** EF Core migration `20260915190609_InitialCreate` + idempotent startup index `IX_Reservations_ExclusiveActiveSlot ON Reservations(CourtId, Date, TimeSlotId) WHERE State IN (1, 2)`.
+  - **Nonsecret config (`appsettings.json`):** `ConnectionStrings:DefaultConnection = "Data Source=padel.db"`, `Logging:LogLevel:Default = "Information"`. Optional SMTP credentials loaded via external `dotnet user-secrets` (`SmtpSettings:Server`, `Port`, `SenderEmail`, `Username`, `Password`).
+- **Clean checkout/build/test/run commands and environment:**
+  - **Environment:** Windows 11 x64 / Linux (Ubuntu 24.04 in CI), .NET 8.0 SDK.
+  - **Exact commands:**
+    ```bash
+    git clone [https://github.com/bad-account/reservation_system.git](https://github.com/bad-account/reservation_system.git) padel_clean_verify
+    cd padel_clean_verify
+    git checkout C09
+    dotnet restore reservation_system_for_padel/reservation_system_for_padel.sln
+    dotnet build reservation_system_for_padel/reservation_system_for_padel.sln -c Release --no-restore
+    dotnet test reservation_system_for_padel/reservation_system_for_padel.sln -c Release --no-build --verbosity normal
+    dotnet run --project reservation_system_for_padel/reservation_system_for_padel.csproj
+    ```
+- **CI job or automated local script, observed result/log link:**
+  - Automated via local PowerShell script `./verify.ps1` and GitHub Actions workflow `.github/workflows/ci.yml` triggered on `push` / `pull_request`.
+  - **Observed result:** `Passed! - Failed: 0, Passed: 14, Skipped: 0, Total: 14`, `Exit code: 0`.
+- **Independent reproducer, steps, actual result and any hidden fix:**
+  - **Reproducer:** Second team member (`TRD0006`) performed a clean clone into a fresh directory on a separate machine following only `README.md`.
+  - **Actual result:** `dotnet restore`, `dotnet build -c Release`, and `dotnet test -c Release` passed (`14/14 PASS`) on the first attempt. `dotnet run` automatically initialized `padel.db`, seeded courts/slots/admin user, and served the UI on `http://localhost:5xxx`. Zero undocumented local files or hidden fixes were required (previous `.NET 9` vs `.NET 8` mismatch in `.Tests.csproj` from C06 B2 was resolved prior to checkout).
+- **Artifact identity/file/hash/tag and migration assumptions:**
+  - **Git Tag:** `tag C09`
+  - **Built Release Artifact:** `reservation_system_for_padel/bin/Release/net8.0/reservation_system_for_padel.dll` (and self-contained publish output via `dotnet publish -c Release -o ./publish`).
+  - **Migration Assumptions:** Zero schema changes between `tag C08` and `tag C09`; existing `padel.db` files are 100% forward- and backward-compatible.
+- **Recovery/rollback limitation and remaining risks:**
+  - **Code Rollback:** Reverting the application binary to `tag C08` (`git checkout C08 && dotnet build -c Release`) immediately restores the previous cancellation behavior without DB schema incompatibility.
+  - **Data Rollback Limitation:** Rolling back application code does **not** undo state transitions (`Confirmed -> Canceled`) already committed to `padel.db`. Restoring historical reservation states requires a pre-deployment copy of the `padel.db` SQLite file.
+  - **Remaining Risks:** `DateTime.Now` relies on server local timezone (CET/CEST) rather than an injected `TimeProvider`; SMTP email dispatch remains synchronous with a graceful `try-catch` fallback (`R-03`).
+- **Release candidate decision READY/CONDITIONAL/HOLD, owner, rationale:**
+  - **Decision:** **`READY`** (Release Candidate `tag C09`).
+  - **Accountable Owner:** Jan Bruthans (`BRU0082`).
+  - **Rationale:** All acceptance criteria (`AC-01..AC-05`) for `CR-08`, prior C06 findings (`F1`, `F2`), and C08 SQLite persistence regression tests (`TC-C08-01`, `TC-C08-02`) are implemented, peer-reviewed, and verified (`14/14 PASS`, exit code `0`), and clean checkout reproducibility was independently confirmed.
