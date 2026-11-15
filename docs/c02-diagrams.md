@@ -94,17 +94,15 @@ flowchart TD
     
     AuthCheck -- No --> LoginRedirect[Redirect to Login page] --> EndLogin([End])
     
-    AuthCheck -- Yes --> PermCheck{Is user Reservation Owner?}
+    AuthCheck -- Yes --> PermCheck{Is user Reservation Owner<br/>OR Admin?}
     
     PermCheck -- No --> ErrPerm[Display error: Access Denied] --> EndPerm([End])
     
-    PermCheck -- Yes --> ConfirmModal[Display cancellation confirmation Modal]
+    PermCheck -- Yes --> CutoffCheck{Is State == CONFIRMED<br/>AND !isAdmin<br/>AND start <= now + 12h?}
     
-    ConfirmModal --> Choice{Confirm cancellation?}
+    CutoffCheck -- Yes --> ErrCutoff[Reject: Must cancel > 12h before start] --> KeepRes([End: Reservation remains CONFIRMED])
     
-    Choice -- No --> KeepRes([End: Reservation unchanged])
-    
-    Choice -- Yes --> UpdateDB[Update DB: State = CANCELED]
+    CutoffCheck -- No --> UpdateDB[Update DB: State = CANCELED]
     UpdateDB --> SendEmail[Send cancellation email]
     SendEmail --> EndSuccess([End: Slot Released & Email Sent])
 ```
