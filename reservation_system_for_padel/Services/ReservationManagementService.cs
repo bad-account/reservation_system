@@ -212,6 +212,15 @@ public class ReservationManagementService : IReservationManagementService
             return (false, "Rušit lze pouze potvrzenou rezervaci nebo žádost čekající na schválení.");
         }
 
+        if (reservation.State == ReservationState.Confirmed && !isAdmin)
+        {
+            var slotDateTime = reservation.Date.ToDateTime(reservation.TimeSlot.StartTime);
+            if (slotDateTime <= DateTime.Now.AddHours(12))
+            {
+                return (false, "Potvrzenou rezervaci lze zrušit nejpozději 12 hodin před začátkem hry.");
+            }
+        }
+
         reservation.State = ReservationState.Canceled;
         await _repo.SaveChangesAsync();
 
