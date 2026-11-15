@@ -70,3 +70,12 @@ End-to-end flow for creating and verifying a court reservation:
      - Sends `POST /Reservation/CreateDraft` and receives a JSON response containing `reservationId`.
      - Sends `POST /Reservation/ConfirmDraft` with the returned `reservationId`.
      - Queries the SQLite database or calls `GET /Reservation/MyReservations` to confirm the reservation state is set to `Confirmed`.
+    
+---
+
+## Automated Build & Verification (CI / Local Script)
+
+To execute a full reproducible build and run all unit, regression, and SQLite integration tests in a single step, run the verification script from the repository root:
+
+```powershell
+./verify.ps1
