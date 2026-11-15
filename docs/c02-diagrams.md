@@ -30,20 +30,22 @@ flowchart LR
 
 # Reservation state diagram
 
+# Reservation state diagram
+
 ```mermaid
 stateDiagram-v2
     [*] --> DRAFT : createDraft [slot available & user active limit < 2]
 
-    DRAFT --> CONFIRMED : confirmDraft [within 5 min TTL]
+    DRAFT --> CONFIRMED : confirmDraft [within 5 min TTL & Courts 1..3]
     DRAFT --> PENDING_APPROVAL : confirmDraft [within 5 min TTL & Court 4]
     DRAFT --> REJECTED : cancelDraft / timeout [TTL > 5 min]
 
     PENDING_APPROVAL --> CONFIRMED : approveReservation [by Admin]
     PENDING_APPROVAL --> REJECTED : rejectReservation [by Admin]
-    PENDING_APPROVAL --> CANCELED : cancelReservation [by User]
+    PENDING_APPROVAL --> CANCELED : cancelReservation [by User or Admin before start]
     PENDING_APPROVAL --> EXPIRED : autoExpire [unapproved < 24h before game]
 
-    CONFIRMED --> CANCELED : cancelReservation [by user]
+    CONFIRMED --> CANCELED : cancelReservation [player & >12h before start OR admin]
     CONFIRMED --> EXPIRED : timePassed [Date & TimeSlot end passed]
 
     REJECTED --> [*]
