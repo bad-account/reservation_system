@@ -375,4 +375,170 @@ public class ReservationManagementServiceTests
             .CountAsync(r => r.CourtId == 1 && r.Date == targetDate && r.TimeSlotId == 3 && r.State == ReservationState.Confirmed);
         Assert.Equal(1, confirmedCount);
     }
+
+
+    // ==========
+    // C09 (CR-08: 12-Hour Cancellation Cutoff Policy)
+    // ==========
+
+    // AC-01: Standard player cancelling Confirmed > 12h before start succeeds
+    [Fact]
+    public async Task CancelReservationAsync_ConfirmedPlayerMoreThan12h_Succeeds()
+    {
+        var (service, repo, email, _) = CreateSut();
+        var futureSlotTime = DateTime.Now.AddHours(24);
+        var slotTime = new TimeOnly(futureSlotTime.Hour, futureSlotTime.Minute);
+        var slot = new TimeSlot { Id = 10, StartTime = slotTime, EndTime = slotTime.AddHours(1) };
+        repo.TimeSlots.Add(slot);
+
+        var reservation = new Reservation
+        {
+            Id = 101,
+            UserId = 1,
+            CourtId = 1,
+            Court = repo.Courts.First(c => c.Id == 1),
+            TimeSlotId = 10,
+            TimeSlot = slot,
+            Date = DateOnly.FromDateTime(futureSlotTime),
+            State = ReservationState.Confirmed,
+            User = new User { Id = 1, Name = "Jan", Email = "jan@padel.cz" }
+        };
+        repo.Reservations.Add(reservation);
+
+        var result = await service.CancelReservationAsync(101, userId: 1, isAdmin: false);
+
+        Assert.True(result.Success);
+        Assert.Equal(ReservationState.Canceled, reservation.State);
+    }
+
+    // AC-02 & AC-03: Standard player cancelling Confirmed <= 12h before start is rejected
+    [Fact]
+    public async Task CancelReservationAsync_ConfirmedPlayerLessThanOrEqual12h_IsRejected()
+    {
+        var (service, repo, email, _) = CreateSut();
+        var soonSlotTime = DateTime.Now.AddHours(6);
+        var slotTime = new TimeOnly(soonSlotTime.Hour, soonSlotTime.Minute);
+        var slot = new TimeSlot { Id = 11, StartTime = slotTime, EndTime = slotTime.AddHours(1) };
+        repo.TimeSlots.Add(slot);
+
+        var reservation = new Reservation
+        {
+            Id = 102,
+            UserId = 1,
+            CourtId = 1,
+            Court = repo.Courts.First(c => c.Id == 1),
+            TimeSlotId = 11,
+            TimeSlot = slot,
+            Date = DateOnly.FromDateTime(soonSlotTime),
+            State = ReservationState.Confirmed,
+            User = new User { Id = 1, Name = "Jan", Email = "jan@padel.cz" }
+        };
+        repo.Reservations.Add(reservation);
+
+        var result = await service.CancelReservationAsync(102, userId: 1, isAdmin: false);
+
+        Assert.False(result.Success);
+        Assert.Equal("Potvrzenou rezervaci lze zrušit nejpozději 12 hodin před začátkem hry.", result.Message);
+        Assert.Equal(ReservationState.Confirmed, reservation.State);
+        Assert.Equal(0, email.SentCount);
+    }
+
+    // AC-04 (Admin override): Admin can cancel Confirmed reservation even < 12h before start
+    [Fact]
+    public async Task CancelReservationAsync_ConfirmedAdminLessThan12h_Succeeds()
+    {
+        var (service, repo, _, _) = CreateSut();
+        var soonSlotTime = DateTime.Now.AddHours(2);
+        var slotTime = new TimeOnly(soonSlotTime.Hour, soonSlotTime.Minute);
+        var slot = new TimeSlot { Id = 12, StartTime = slotTime, EndTime = slotTime.AddHours(1) };
+        repo.TimeSlots.Add(slot);
+
+        var reservation = new Reservation
+        {
+            Id = 103,
+            UserId = 1,
+            CourtId = 1,
+            Court = repo.Courts.First(c => c.Id == 1),
+            TimeSlotId = 12,
+            TimeSlot = slot,
+            Date = DateOnly.FromDateTime(soonSlotTime),
+            State = ReservationState.Confirmed,
+            User = new User { Id = 1, Name = "Jan", Email = "jan@padel.cz" }
+        };
+        repo.Reservations.Add(reservation);
+
+        var result = await service.CancelReservationAsync(103, userId: 99, isAdmin: true);
+
+        Assert.True(result.Success);
+        Assert.Equal(ReservationState.Canceled, reservation.State);
+    }
+
+    // AC-04 (State exemption): Standard player can withdraw PendingApproval < 12h before start
+    [Fact]
+    public async Task CancelReservationAsync_PendingApprovalPlayerLessThan12h_Succeeds()
+    {
+        var (service, repo, _, _) = CreateSut();
+        var soonSlotTime = DateTime.Now.AddHours(3);
+        var slotTime = new TimeOnly(soonSlotTime.Hour, soonSlotTime.Minute);
+        var slot = new TimeSlot { Id = 13, StartTime = slotTime, EndTime = slotTime.AddHours(1) };
+        repo.TimeSlots.Add(slot);
+
+        var reservation = new Reservation
+        {
+            Id = 104,
+            UserId = 1,
+            CourtId = 4,
+            Court = repo.Courts.First(c => c.Id == 4),
+            TimeSlotId = 13,
+            TimeSlot = slot,
+            Date = DateOnly.FromDateTime(soonSlotTime),
+            State = ReservationState.PendingApproval,
+            User = new User { Id = 1, Name = "Jan", Email = "jan@padel.cz" }
+        };
+        repo.Reservations.Add(reservation);
+
+        var result = await service.CancelReservationAsync(104, userId: 1, isAdmin: false);
+
+        Assert.True(result.Success);
+        Assert.Equal(ReservationState.Canceled, reservation.State);
+    }
+
+    // TC-CR08-INT: Real SQLite integration check for CR-08 (verifies persisted state via independent query)
+    [Fact]
+    public async Task TC_CR08_INT_CancelConfirmedUnder12h_InSqlite_IsRejectedAndPersistsConfirmedState()
+    {
+        var (db, service, conn) = CreateSqliteSut();
+        using var _ = conn;
+
+        var soonSlotTime = DateTime.Now.AddHours(5);
+        var slotTime = new TimeOnly(soonSlotTime.Hour, soonSlotTime.Minute);
+
+        var user = new User { Name = "Jan", Surname = "Bruthans", Email = "jan@padel.cz", PasswordHash = "hash", Role = UserRole.User };
+        var court = new Court { Number = 1, IsActive = true };
+        var slot = new TimeSlot { StartTime = slotTime, EndTime = slotTime.AddHours(1) };
+        db.Users.Add(user);
+        db.Courts.Add(court);
+        db.TimeSlots.Add(slot);
+        await db.SaveChangesAsync();
+
+        var reservation = new Reservation
+        {
+            UserId = user.Id,
+            CourtId = court.Id,
+            TimeSlotId = slot.Id,
+            Date = DateOnly.FromDateTime(soonSlotTime),
+            State = ReservationState.Confirmed,
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Reservations.Add(reservation);
+        await db.SaveChangesAsync();
+
+        // Act: Pokus o zrušení 5 hodin před začátkem přes reálný ReservationRepository + SQLite
+        var result = await service.CancelReservationAsync(reservation.Id, user.Id, isAdmin: false);
+
+        // Assert: Zamítnuto a nezávislé čtení z SQLite (AsNoTracking) potvrdí, že stav v DB zůstal Confirmed
+        Assert.False(result.Success);
+        var persisted = await db.Reservations.AsNoTracking().FirstAsync(r => r.Id == reservation.Id);
+        Assert.Equal(ReservationState.Confirmed, persisted.State);
+    }
 }
