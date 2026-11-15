@@ -306,3 +306,35 @@ During the independent assessment (C06) conducted by the assessment team, three 
 - **Verdict PASS / FAIL / BLOCKED / NOT RUN + supporting observation:** **`PASS`** — Real SQLite partial unique index `IX_Reservations_ExclusiveActiveSlot` triggered `DbUpdateException`, which `ReservationManagementService.ConfirmDraftAsync` caught and translated into a clean rejection tuple. Risk `R-02` is now **VERIFIED** and closed.
 - **If FAIL / If BLOCKED:** N/A (test passed).
 - **What remains untested / actual residual exposure:** New cancellation cutoff behavior (`CR-08` — 12h window) is `PLANNED` and designed in `docs/intent-and-change.md`, to be implemented and verified in **C09**.
+
+---
+
+## C09 — CR-08 Change Implementation, Integration Verification & Release Evidence
+
+### Evidence Overview for CR-08 (12-Hour Cancellation Cutoff Policy)
+
+| Evidence | Actual Project State |
+| :--- | :--- |
+| **Before / After** | `before = tag C08`; `after = tag C09`, DB schema `20260915190609_InitialCreate` + `IX_Reservations_ExclusiveActiveSlot` and configuration `appsettings.json` are identical in both (N/A for DDL migrations). |
+| **Code review** | Reviewer (team member TRD0006) verified the server-side time calculation (`reservation.Date.ToDateTime(reservation.TimeSlot.StartTime) <= DateTime.Now.AddHours(12)`), exemptions for `isAdmin == true` and `PendingApproval` state, absence of email dispatch upon rejection, and eager loading of `TimeSlot` in `GetByIdAsync`. |
+| **New integration test** | `TC_CR08_INT_CancelConfirmedCutoff_InSqlite_VerifiesPositiveBoundaryAndNegativeWithIndependentReads`: isolated SQLite DB, creation of `CONFIRMED` bookings at `>12h`, `==12h`, and `<12h`, invocation of `CancelReservationAsync`, and independent state verification via `.AsNoTracking()`. |
+| **Negative boundary** | At `<= 12:00h` (e.g., `12:00h` and `05:00h` before match start), returns `Success == false`, reservation remains `CONFIRMED` (`2`) in SQLite, and `SpyEmailSender.SentCount == 0`. |
+| **Regression** | Executed prior C08 tests (`TC_C08_01`, `TC_C08_02`) and all 7 unit tests from C05/C07 within the same test suite (`14/14 PASS`). |
+| **CI / Automation** | Script `./verify.ps1` and GitHub Actions workflow `.github/workflows/ci.yml` (`dotnet restore`, `dotnet build -c Release`, `dotnet test -c Release`), exit code `0`. |
+| **Clean checkout** | Second team member cloned `tag C09` into a fresh directory outside the original workspace and executed build, tests, and application startup strictly following `README.md`. |
+| **Limitations** | Time comparisons rely on server local clock (`DateTime.Now`) rather than an injected `TimeProvider`; code rollback does not revert already committed state changes in `padel.db` (DB file backup required). |
+
+### Concrete Step-by-Step Integration Test (`TC-CR08-INT`)
+
+- **Tested change & AC:** `CR-08` (`AC-01` allow `> 12h`, `AC-02` reject `< 12h`, `AC-03` inclusive rejection at boundary `<= 12:00h`, `AC-05` `BR-02` regression).
+- **Command:** `dotnet test --filter TC_CR08_INT`
+
+| # | Action | Expected (Predeclared per CR-08) | Actual / Evidence (Post-Execution) |
+| :---: | :--- | :--- | :--- |
+| 1 | Initialize isolated SQLite DB with schema and index `IX_Reservations_ExclusiveActiveSlot`; insert user and `CONFIRMED` booking `resPositive` at `now + 24h` (`> 12h`). | `resPositive` is persisted in SQLite in `CONFIRMED` (`2`) state. | `SaveChangesAsync()` succeeded; booking persisted in DB in `Confirmed` state. |
+| 2 | Invoke `service.CancelReservationAsync(resPositive.Id, user.Id, isAdmin: false)` at `24h` before start. | `AC-01`: Operation permitted (`Success == true`), confirmation message returned. | Returned `Success == true` with cancellation confirmation message (`PASS`). |
+| 3 | BEFORE the next step, independently query `resPositive` from SQLite using `AsNoTracking()`. | `resPositive.State == Canceled` (`4`); slot no longer blocks capacity per `BR-02`. | Independent SQL `SELECT` confirmed `persistedPos.State == Canceled`. |
+| 4 | Insert `CONFIRMED` booking `resBoundary` at exact `now + 12:00h` boundary in SQLite; invoke `CancelReservationAsync` as a standard player and independently read DB state. | `AC-03`: Rejected at remaining time `<= 12:00h` (`Success == false`); `State == Confirmed` remains in DB. | Returned `Success == false` with message `"Potvrzenou rezervaci lze zrušit nejpozději 12 hodin před začátkem hry."`; `persistedBound.State == Confirmed`. |
+| 5 | Insert `CONFIRMED` booking `resNegative` at `now + 5h` (`< 12h`) in SQLite; invoke `CancelReservationAsync` as a standard player. | `AC-02`: Rejected (`Success == false`), no cancellation email dispatched. | Returned `Success == false`, `email.SentCount` remained unchanged. |
+| 6 | After rejection in step 5, query `resNegative` from SQLite via `AsNoTracking()`. | `resNegative` remains in SQLite in `CONFIRMED` (`2`) state; invariant `BR-02` holds. | Independent query confirmed `persistedNeg.State == Confirmed` (`PASS`). |
+| 7 | Run existing regression tests `TC_C08_01`, `TC_C08_02`, and `AC-04` unit tests (Admin `< 12h`, `PendingApproval` `< 12h`). | All previously accepted invariants (`BR-01..BR-05`) and `AC-04` exemptions hold. | `dotnet test` -> `Passed! - Failed: 0, Passed: 14, Total: 14` (`exit code 0`). |
