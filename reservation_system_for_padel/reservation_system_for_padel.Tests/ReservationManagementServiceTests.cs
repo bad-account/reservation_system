@@ -503,42 +503,62 @@ public class ReservationManagementServiceTests
         Assert.Equal(ReservationState.Canceled, reservation.State);
     }
 
-    // TC-CR08-INT: Real SQLite integration check for CR-08 (verifies persisted state via independent query)
+    // TC-CR08-INT: Kompletní SQLite integrační test pro CR-08 (AC-01 >12h, AC-03 ==12h, AC-02 <12h + nezávislé čtení z DB)
     [Fact]
-    public async Task TC_CR08_INT_CancelConfirmedUnder12h_InSqlite_IsRejectedAndPersistsConfirmedState()
+    public async Task TC_CR08_INT_CancelConfirmedCutoff_InSqlite_VerifiesPositiveBoundaryAndNegativeWithIndependentReads()
     {
         var (db, service, conn) = CreateSqliteSut();
         using var _ = conn;
 
-        var soonSlotTime = DateTime.Now.AddHours(5);
-        var slotTime = new TimeOnly(soonSlotTime.Hour, soonSlotTime.Minute);
-
-        var user = new User { Name = "Jan", Surname = "Bruthans", Email = "jan@padel.cz", PasswordHash = "hash", Role = UserRole.User };
-        var court = new Court { Number = 1, IsActive = true };
-        var slot = new TimeSlot { StartTime = slotTime, EndTime = slotTime.AddHours(1) };
+        var user = new User { Name = "Eva", Surname = "Trda", Email = "eva@padel.cz", PasswordHash = "hash", Role = UserRole.User };
         db.Users.Add(user);
-        db.Courts.Add(court);
-        db.TimeSlots.Add(slot);
         await db.SaveChangesAsync();
 
-        var reservation = new Reservation
-        {
-            UserId = user.Id,
-            CourtId = court.Id,
-            TimeSlotId = slot.Id,
-            Date = DateOnly.FromDateTime(soonSlotTime),
-            State = ReservationState.Confirmed,
-            CreatedAt = DateTime.UtcNow
-        };
-        db.Reservations.Add(reservation);
+        // KROK 1 & 2 (AC-01): Rezervace za 24h (> 12h) -> povoleno
+        var timePlus24h = DateTime.Now.AddHours(24);
+        var slot24 = new TimeSlot { StartTime = new TimeOnly(timePlus24h.Hour, timePlus24h.Minute), EndTime = new TimeOnly(timePlus24h.Hour, timePlus24h.Minute).AddHours(1) };
+        db.TimeSlots.Add(slot24);
         await db.SaveChangesAsync();
 
-        // Act: Pokus o zrušení 5 hodin před začátkem přes reálný ReservationRepository + SQLite
-        var result = await service.CancelReservationAsync(reservation.Id, user.Id, isAdmin: false);
+        var resPositive = new Reservation { CourtId = 1, TimeSlotId = slot24.Id, Date = DateOnly.FromDateTime(timePlus24h), UserId = user.Id, State = ReservationState.Confirmed };
+        db.Reservations.Add(resPositive);
+        await db.SaveChangesAsync();
 
-        // Assert: Zamítnuto a nezávislé čtení z SQLite (AsNoTracking) potvrdí, že stav v DB zůstal Confirmed
-        Assert.False(result.Success);
-        var persisted = await db.Reservations.AsNoTracking().FirstAsync(r => r.Id == reservation.Id);
-        Assert.Equal(ReservationState.Confirmed, persisted.State);
+        var res1 = await service.CancelReservationAsync(resPositive.Id, user.Id, isAdmin: false);
+        Assert.True(res1.Success);
+
+        // KROK 3: Samostatné čtení z SQLite před dalším krokem
+        var persistedPos = await db.Reservations.AsNoTracking().FirstAsync(r => r.Id == resPositive.Id);
+        Assert.Equal(ReservationState.Canceled, persistedPos.State);
+
+        // KROK 4 (AC-03 Hranice): Rezervace přesně na hranici 12h (11h 59m 59s kvůli posunu milisekund při volání DateTime.Now) -> zamítnuto
+        var timeBoundary12h = DateTime.Now.AddHours(12);
+        var slot12 = new TimeSlot { StartTime = new TimeOnly(timeBoundary12h.Hour, timeBoundary12h.Minute), EndTime = new TimeOnly(timeBoundary12h.Hour, timeBoundary12h.Minute).AddHours(1) };
+        db.TimeSlots.Add(slot12);
+        await db.SaveChangesAsync();
+
+        var resBoundary = new Reservation { CourtId = 1, TimeSlotId = slot12.Id, Date = DateOnly.FromDateTime(timeBoundary12h), UserId = user.Id, State = ReservationState.Confirmed };
+        db.Reservations.Add(resBoundary);
+        await db.SaveChangesAsync();
+
+        var res2 = await service.CancelReservationAsync(resBoundary.Id, user.Id, isAdmin: false);
+        Assert.False(res2.Success);
+        var persistedBound = await db.Reservations.AsNoTracking().FirstAsync(r => r.Id == resBoundary.Id);
+        Assert.Equal(ReservationState.Confirmed, persistedBound.State);
+
+        // KROK 5 & 6 (AC-02): Rezervace za 5h (< 12h) -> zamítnuto a v DB zůstává Confirmed
+        var timePlus5h = DateTime.Now.AddHours(5);
+        var slot5 = new TimeSlot { StartTime = new TimeOnly(timePlus5h.Hour, timePlus5h.Minute), EndTime = new TimeOnly(timePlus5h.Hour, timePlus5h.Minute).AddHours(1) };
+        db.TimeSlots.Add(slot5);
+        await db.SaveChangesAsync();
+
+        var resNegative = new Reservation { CourtId = 1, TimeSlotId = slot5.Id, Date = DateOnly.FromDateTime(timePlus5h), UserId = user.Id, State = ReservationState.Confirmed };
+        db.Reservations.Add(resNegative);
+        await db.SaveChangesAsync();
+
+        var res3 = await service.CancelReservationAsync(resNegative.Id, user.Id, isAdmin: false);
+        Assert.False(res3.Success);
+        var persistedNeg = await db.Reservations.AsNoTracking().FirstAsync(r => r.Id == resNegative.Id);
+        Assert.Equal(ReservationState.Confirmed, persistedNeg.State);
     }
 }
