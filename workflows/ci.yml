@@ -1,0 +1,23 @@
+name: .NET CI Build & Verify (C09)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET 8.0
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore reservation_system_for_padel/reservation_system_for_padel.sln
+    - name: Build Release
+      run: dotnet build reservation_system_for_padel/reservation_system_for_padel.sln --configuration Release --no-restore
+    - name: Execute Unit & Real SQLite Integration Tests
+      run: dotnet test reservation_system_for_padel/reservation_system_for_padel.sln --configuration Release --no-build --verbosity normal
