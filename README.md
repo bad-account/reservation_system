@@ -75,7 +75,7 @@ End-to-end flow for creating and verifying a court reservation:
 
 ## Automated Build & Verification (CI / Local Script)
 
-To execute a full reproducible build and run all unit, regression, and SQLite integration tests in a single step, run the verification script from the repository root:
+To execute a full reproducible build and run all unit, regression, and SQLite integration tests in a single step, run the verification script from the source code project root:
 
 ```powershell
-./verify.ps1
+../workflows/verify.ps1
