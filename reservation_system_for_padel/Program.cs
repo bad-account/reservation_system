@@ -11,6 +11,8 @@ namespace reservation_system_for_padel
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            builder.Logging.AddProvider(new FileLoggerProvider());
+
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
                                   ?? "Data Source=padel.db"));
