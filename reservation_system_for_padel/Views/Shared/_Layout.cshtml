@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/reservation_system_for_padel.styles.css" asp-append-version="true" />
+    @await RenderSectionAsync("Styles", required: false)
 </head>
 <body>
     <header>
@@ -15,33 +16,41 @@
                 <a class="navbar-brand fw-bold text-primary" asp-controller="Home" asp-action="Index">
                     🎾 Padel Ostrava
                 </a>
+
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
                         aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
+
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    <!-- Levé navigační menu -->
-                    <ul class="navbar-nav flex-grow-1">
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-controller="Reservation" asp-action="Index">Rezervace kurtů</a>
-                        </li>
-                        @if (User.Identity?.IsAuthenticated == true)
-                        {
+                    @* Approval page uses the shared navbar styling, but intentionally has no reservation links. *@
+                    @if (ViewData["MinimalAdminLayout"] as bool? != true)
+                    {
+                        <ul class="navbar-nav flex-grow-1">
                             <li class="nav-item">
-                                <a class="nav-link text-dark" asp-controller="Reservation" asp-action="MyReservations">Moje rezervace</a>
+                                <a class="nav-link text-dark" asp-controller="Reservation" asp-action="Index">Rezervace kurtů</a>
                             </li>
-                            @if (User.IsInRole("Admin"))
+                            @if (User.Identity?.IsAuthenticated == true)
                             {
                                 <li class="nav-item">
-                                    <a class="nav-link text-danger fw-bold" asp-controller="Reservation" asp-action="PendingApprovals">
-                                        Schvalování žádostí
-                                    </a>
+                                    <a class="nav-link text-dark" asp-controller="Reservation" asp-action="MyReservations">Moje rezervace</a>
                                 </li>
+                                @if (User.IsInRole("Admin"))
+                                {
+                                    <li class="nav-item">
+                                        <a class="nav-link text-danger fw-bold" asp-controller="Reservation" asp-action="PendingApprovals">
+                                            Schvalování žádostí
+                                        </a>
+                                    </li>
+                                }
                             }
-                        }
-                    </ul>
+                        </ul>
+                    }
+                    else
+                    {
+                        <div class="flex-grow-1"></div>
+                    }
 
-                    <!-- Pravá část: uživatelský profil / přihlášení -->
                     <ul class="navbar-nav ms-auto align-items-center">
                         @if (User.Identity?.IsAuthenticated == true)
                         {
@@ -76,17 +85,26 @@
         </nav>
     </header>
 
-    <div class="container">
-        <main role="main" class="pb-3">
+    @if (ViewData["MinimalAdminLayout"] as bool? == true)
+    {
+        <main role="main" class="container approval-page-container pb-4">
             @RenderBody()
         </main>
-    </div>
-
-    <footer class="border-top footer text-muted py-3">
-        <div class="container text-center small">
-            &copy; 2026 - Padel Ostrava - Rezervační systém
+    }
+    else
+    {
+        <div class="container">
+            <main role="main" class="pb-3">
+                @RenderBody()
+            </main>
         </div>
-    </footer>
+
+        <footer class="border-top footer text-muted py-3">
+            <div class="container text-center small">
+                &copy; 2026 - Padel Ostrava - Rezervační systém
+            </div>
+        </footer>
+    }
 
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
