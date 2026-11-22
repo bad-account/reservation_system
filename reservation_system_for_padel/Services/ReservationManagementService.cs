@@ -122,8 +122,13 @@ public class ReservationManagementService : IReservationManagementService
             {
                 await _repo.SaveChangesAsync();
             }
-            catch (DbUpdateException)
+            catch (DbUpdateException ex)
             {
+                _logger.LogWarning(
+                    ex,
+                    "Reservation confirmation rejected due to a database constraint."
+                );
+
                 return (false, "Tento termín byl v mezičase obsazen.");
             }
 

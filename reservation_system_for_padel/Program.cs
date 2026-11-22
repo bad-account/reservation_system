@@ -35,6 +35,30 @@ namespace reservation_system_for_padel
 
             var app = builder.Build();
 
+            // C10 – diagnostic logging of unexpected errors
+            app.Use(async (context, next) =>
+            {
+                try
+                {
+                    await next();
+                }
+                catch (Exception ex)
+                {
+                    var logger = context.RequestServices
+                        .GetRequiredService<ILogger<Program>>();
+
+                    logger.LogError(
+                        ex,
+                        "Request failed. Method: {Method}, Path: {Path}",
+                        context.Request.Method,
+                        context.Request.Path
+                    );
+
+                    throw;
+                }
+            });
+
+
             using (var scope = app.Services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
