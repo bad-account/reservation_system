@@ -409,3 +409,23 @@ During the independent assessment (C06) conducted by the assessment team, three 
   - **Decision:** **`READY`** (Release Candidate `tag C09`).
   - **Accountable Owner:** Jan Bruthans (`BRU0082`).
   - **Rationale:** All acceptance criteria (`AC-01..AC-05`) for `CR-08`, prior C06 findings (`F1`, `F2`), and C08 SQLite persistence regression tests (`TC-C08-01`, `TC-C08-02`) are implemented, peer-reviewed, and verified (`14/14 PASS`, exit code `0`), and clean checkout reproducibility was independently confirmed.
+ 
+
+---
+
+## C10 — Operational Situations & Logging
+
+| Situation | Expected and actual outcome | How correctness was verified | What do the logs show / is logging needed? |
+| :--- | :--- | :--- | :--- |
+| **Successful confirmation** | A valid reservation was successfully confirmed and persisted in the database. | Verified in C08 test `TC_C08_01`, where both adjacent reservations were successfully stored as `Confirmed` in SQLite. | A separate log entry for every successful confirmation is not essential. Verifying the operation result and persisted state is sufficient. |
+| **Conflict rejection** | An attempt to confirm a second reservation for the same court and time slot was rejected. | Verified in C08 test `TC_C08_02`. An independent SQLite query confirmed that only one reservation remained in the `Confirmed` state. | This is an expected business-rule rejection, not a technical error. The application response and database verification are sufficient. |
+| **Technical failure and recovery** | An invalid SMTP server configuration was temporarily used to trigger an email delivery failure. The log recorded `System.Net.Sockets.SocketException (10060)`, indicating that the SMTP connection could not be established. After restoring the original configuration, normal operation could continue. | Verified in the application and by checking the persisted reservation state in SQLite. The email delivery failure did not cause the confirmed reservation to be lost. | The log contains the exception type and information about the failed SMTP connection. Technical failures of external dependencies should be logged because they help identify the cause of a problem. |
+| **Application restart** | The application was stopped and started again. The previously confirmed reservation remained available, and a subsequent operation completed successfully. | After restarting, the reservation was located again in the application and its availability was checked. Another operation was then performed successfully. | The restart did not affect persisted data. Application startup and shutdown records help monitor the operational state of the system. |
+
+### Conclusion
+
+The tests showed that it is not necessary to log every successful operation or treat ordinary business-rule rejections as technical errors. However, technical failures, such as an SMTP connection failure, should be recorded together with the type of problem and the component where it occurred.
+
+The logs helped identify the cause of the email delivery failure. However, the correct reservation state had to be verified independently in the database. The restart test also confirmed that previously persisted reservations remain available after the application starts again.
+
+
