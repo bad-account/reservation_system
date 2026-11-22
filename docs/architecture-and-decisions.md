@@ -800,3 +800,62 @@ sequenceDiagram
 - **HTML Email Formatting:** Exact inline CSS styles and Czech string templates inside `ReservationManagementService` do not affect structural contracts or domain invariants.
 - **QR Payload String Formatting:** The exact delimiter syntax (`PADEL-RESERVATION|ID:...`) and `ECCLevel.Q` pixel scaling (`GetGraphic(20)`) inside `QRCodeService` are implementation details.
 - **EF Core Query Expressions:** LINQ-to-Entities syntax (`Include`, `FirstOrDefaultAsync`) inside `ReservationRepository` is encapsulated behind `IReservationRepository`.
+
+
+---
+
+# C10 — Operational Logging
+
+## 1. Purpose
+
+The application uses file-based logging to record relevant runtime events and technical failures. The purpose is to make application behaviour easier to inspect and diagnose without requiring an external logging service or additional NuGet packages.
+
+## 2. Implementation
+
+The logging mechanism is implemented using the built-in ASP.NET Core logging abstractions.
+
+The following components are used:
+
+| Component | Responsibility |
+| :--- | :--- |
+| `ILogger` | Provides a standard interface for writing log messages from application components. |
+| `FileLoggerProvider` | Creates `FileLogger` instances for individual logging categories. |
+| `FileLogger` | Formats log entries and appends them to a text file. |
+| `Program.cs` | Registers `FileLoggerProvider` using `builder.Logging.AddProvider()`. |
+
+The custom file logger does not replace the existing console logging provider. Both providers can receive the same application log events.
+
+## 3. Log File Structure
+
+Log files are stored in a `Logs` directory under the application's runtime output directory.
+
+The file name includes the date at the time the logger is initialized.
+
+Each entry contains:
+- Timestamp
+- Log level
+- Logging category
+- Log message
+- Exception details, when available
+
+## 4. Logging Levels
+
+The file logger supports the standard ASP.NET Core logging levels:
+
+| Level | Purpose |
+| :--- | :--- |
+| `Trace` | Very detailed diagnostic information. |
+| `Debug` | Debugging information useful during development. |
+| `Information` | Relevant application events and successful operations. |
+| `Warning` | Unexpected situations that do not necessarily prevent an operation from completing. |
+| `Error` | Errors that affect an operation, such as an SMTP connection failure. |
+| `Critical` | Serious failures that may prevent the application from functioning correctly. |
+
+The logger records all levels except `LogLevel.None`. Actual entries depend on which messages are emitted by the application.
+
+## 5. Architectural Consequences
+
+- Log files can be opened using any standard text editor.
+- Logging is available through the existing `ILogger` abstraction.
+- The file logger writes to the application's runtime output directory.
+
